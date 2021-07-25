@@ -84,6 +84,8 @@ void ngtcp2_pv_entry_init(ngtcp2_pv_entry *pvent, const uint8_t *data,
    server's preferred address.  This flag is only used by client. */
 #define NGTCP2_PV_FLAG_PREFERRED_ADDR 0x10
 
+#define NGTCP2_PV_FLAG_MIGRATE_ON_SUCCESS 0x20
+
 typedef struct ngtcp2_pv ngtcp2_pv;
 
 /*

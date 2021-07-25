@@ -2843,6 +2843,12 @@ typedef int (*ngtcp2_update_key)(
  */
 #define NGTCP2_PATH_VALIDATION_FLAG_PREFERRED_ADDR 0x01
 
+
+#define NGTCP2_PATH_VALIDATION_FLAG_MIGRATION_ON_SUCCESS 0x02
+
+
+#define NGTCP2_MIGRATE_FLAG_NONE 0
+
 /**
  * @functypedef
  *
@@ -4646,6 +4652,17 @@ NGTCP2_EXTERN int ngtcp2_conn_initiate_migration(ngtcp2_conn *conn,
                                                  const ngtcp2_addr *local_addr,
                                                  void *path_user_data,
                                                  ngtcp2_tstamp ts);
+
+
+NGTCP2_EXTERN int ngtcp2_conn_migrate(ngtcp2_conn *conn,
+                                      const ngtcp2_path *path,
+                                      uint32_t flags,
+                                      ngtcp2_tstamp ts);
+
+NGTCP2_EXTERN int ngtcp2_conn_initiate_path_validation(ngtcp2_conn *conn,
+                                                       const ngtcp2_path *path,
+                                                       uint32_t flags,
+                                                       ngtcp2_tstamp ts);
 
 /**
  * @function

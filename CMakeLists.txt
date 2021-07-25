@@ -36,6 +36,10 @@ set(LT_CURRENT  0)
 set(LT_REVISION 0)
 set(LT_AGE      0)
 
+set(ENV{PKG_CONFIG_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/../openssl/build/lib/pkgconfig:${CMAKE_CURRENT_SOURCE_DIR}/../nghttp3/build/lib/pkgconfig")
+
+set(ENV{PKG_CONFIG_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/../openssl/build/lib/pkgconfig:${CMAKE_CURRENT_SOURCE_DIR}/../nghttp3/build/lib/pkgconfig")
+
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_MODULE_PATH}")
 include(Version)
 
