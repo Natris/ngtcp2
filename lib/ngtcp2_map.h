@@ -36,26 +36,21 @@
 
 /* Implementation of unordered map */
 
+typedef uint64_t ngtcp2_map_key_type;
+
 typedef struct ngtcp2_map_bucket {
   uint32_t hash;
-  const void* key;
+  ngtcp2_map_key_type key;
   void *data;
 } ngtcp2_map_bucket;
 
-typedef uint32_t (*ngtcp2_map_hash_key)(const void * key);
-typedef int (*ngtcp2_map_keys_equal)(const void * key1, const void * key2);
-
 typedef struct ngtcp2_map {
-  ngtcp2_map_hash_key hash;
-  ngtcp2_map_keys_equal equal;
   ngtcp2_map_bucket *table;
   const ngtcp2_mem *mem;
   size_t size;
   uint32_t tablelen;
   uint32_t tablelenbits;
 } ngtcp2_map;
-
-
 
 /*
  * Initializes the map |map|.
@@ -66,7 +61,7 @@ typedef struct ngtcp2_map {
  * NGTCP2_ERR_NOMEM
  *   Out of memory
  */
-int ngtcp2_map_init(ngtcp2_map *map, const ngtcp2_mem *mem, ngtcp2_map_hash_key hash, ngtcp2_map_keys_equal equal);
+int ngtcp2_map_init(ngtcp2_map *map, const ngtcp2_mem *mem);
 
 /*
  * Deallocates any resources allocated for |map|. The stored entries
@@ -95,13 +90,13 @@ void ngtcp2_map_each_free(ngtcp2_map *map, int (*func)(void *data, void *ptr),
  * NGTCP2_ERR_NOMEM
  *   Out of memory
  */
-int ngtcp2_map_insert(ngtcp2_map *map, const void *key, void *data);
+int ngtcp2_map_insert(ngtcp2_map *map, ngtcp2_map_key_type key, void *data);
 
 /*
  * Returns the data associated by the key |key|.  If there is no such
  * data, this function returns NULL.
  */
-void *ngtcp2_map_find(ngtcp2_map *map, const void *key);
+void *ngtcp2_map_find(ngtcp2_map *map, ngtcp2_map_key_type key);
 
 /*
  * Removes the data associated by the key |key| from the |map|.  The
@@ -113,7 +108,7 @@ void *ngtcp2_map_find(ngtcp2_map *map, const void *key);
  * NGTCP2_ERR_INVALID_ARGUMENT
  *     The data associated by |key| does not exist.
  */
-int ngtcp2_map_remove(ngtcp2_map *map, const void *key);
+int ngtcp2_map_remove(ngtcp2_map *map, ngtcp2_map_key_type key);
 
 /*
  * Removes all entries from |map|.

@@ -735,18 +735,6 @@ static void conn_reset_ecn_validation_state(ngtcp2_conn *conn) {
   pktns->tx.ecn.validation_pkt_lost = 0;
 }
 
-static uint32_t map_int64_hash(const void *key) {
-  return (uint32_t)((((uint64_t)key) * 11400714819323198485llu) >> 32);
-}
-
-static int map_int64_keys_equal(const void * k1, const void * k2) {
-  return (uint64_t)k1 == (uint64_t)k2;
-}
-
-static void *map_int64_key(int64_t k) {
-  return (void*)(size_t)(k);
-}
-
 static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
                     const ngtcp2_cid *scid, const ngtcp2_path *path,
                     uint32_t version, const ngtcp2_callbacks *callbacks,
@@ -808,8 +796,7 @@ static int conn_new(ngtcp2_conn **pconn, const ngtcp2_cid *dcid,
 
   ngtcp2_pq_init(&(*pconn)->scid.used, ts_retired_less, mem);
 
-  rv = ngtcp2_map_init(&(*pconn)->strms, mem, map_int64_hash,
-                       map_int64_keys_equal);
+  rv = ngtcp2_map_init(&(*pconn)->strms, mem);
   if (rv != 0) {
     goto fail_strms_init;
   }
@@ -6015,7 +6002,7 @@ int ngtcp2_conn_init_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
     return rv;
   }
 
-  rv = ngtcp2_map_insert(&conn->strms, map_int64_key(strm->stream_id),
+  rv = ngtcp2_map_insert(&conn->strms, (ngtcp2_map_key_type)strm->stream_id,
                          strm);
   if (rv != 0) {
     assert(rv != NGTCP2_ERR_INVALID_ARGUMENT);
@@ -10183,7 +10170,7 @@ int ngtcp2_conn_open_uni_stream(ngtcp2_conn *conn, int64_t *pstream_id,
 }
 
 ngtcp2_strm *ngtcp2_conn_find_stream(ngtcp2_conn *conn, int64_t stream_id) {
-  return ngtcp2_map_find(&conn->strms, map_int64_key(stream_id));
+  return ngtcp2_map_find(&conn->strms, (uint64_t)stream_id);
 }
 
 ngtcp2_ssize ngtcp2_conn_write_stream(ngtcp2_conn *conn, ngtcp2_path *path,
@@ -10776,7 +10763,7 @@ int ngtcp2_conn_close_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
     app_error_code = strm->app_error_code;
   }
 
-  rv = ngtcp2_map_remove(&conn->strms, map_int64_key(strm->stream_id));
+  rv = ngtcp2_map_remove(&conn->strms, (ngtcp2_map_key_type)strm->stream_id);
   if (rv != 0) {
     assert(rv != NGTCP2_ERR_INVALID_ARGUMENT);
     return rv;

@@ -30,32 +30,20 @@
 #include "ngtcp2_map.h"
 
 typedef struct strentry {
-  uint64_t key;
+  ngtcp2_map_key_type key;
   const char *str;
 } strentry;
 
-static void strentry_init(strentry *entry, uint64_t key,
+static void strentry_init(strentry *entry, ngtcp2_map_key_type key,
                           const char *str) {
   entry->key = key;
   entry->str = str;
 }
 
-static uint32_t test_map_hash(const void *key) {
-  return (uint32_t)((((uint64_t)key) * 11400714819323198485llu) >> 32);
-}
-
-static int test_map_keys_equal(const void * k1, const void * k2) {
-  return (uint64_t)k1 == (uint64_t)k2;
-}
-
-static void * to_key(uint64_t k) {
-  return (void*)(size_t)(k);
-}
-
 void test_ngtcp2_map(void) {
   strentry foo, FOO, bar, baz, shrubbery;
   ngtcp2_map map;
-  ngtcp2_map_init(&map, ngtcp2_mem_default(), test_map_hash, test_map_keys_equal);
+  ngtcp2_map_init(&map, ngtcp2_mem_default());
 
   strentry_init(&foo, 1, "foo");
   strentry_init(&FOO, 1, "FOO");
@@ -63,42 +51,42 @@ void test_ngtcp2_map(void) {
   strentry_init(&baz, 3, "baz");
   strentry_init(&shrubbery, 4, "shrubbery");
 
-  CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(foo.key), &foo));
-  CU_ASSERT(strcmp("foo", ((strentry *)ngtcp2_map_find(&map, to_key(1)))->str) == 0);
+  CU_ASSERT(0 == ngtcp2_map_insert(&map, foo.key, &foo));
+  CU_ASSERT(strcmp("foo", ((strentry *)ngtcp2_map_find(&map, 1))->str) == 0);
   CU_ASSERT(1 == ngtcp2_map_size(&map));
 
   CU_ASSERT(NGTCP2_ERR_INVALID_ARGUMENT ==
-            ngtcp2_map_insert(&map, to_key(FOO.key), &FOO));
+            ngtcp2_map_insert(&map, FOO.key, &FOO));
 
   CU_ASSERT(1 == ngtcp2_map_size(&map));
-  CU_ASSERT(strcmp("foo", ((strentry *)ngtcp2_map_find(&map, to_key(1)))->str) == 0);
+  CU_ASSERT(strcmp("foo", ((strentry *)ngtcp2_map_find(&map, 1))->str) == 0);
 
-  CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(bar.key), &bar));
+  CU_ASSERT(0 == ngtcp2_map_insert(&map, bar.key, &bar));
   CU_ASSERT(2 == ngtcp2_map_size(&map));
 
-  CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(baz.key), &baz));
+  CU_ASSERT(0 == ngtcp2_map_insert(&map, baz.key, &baz));
   CU_ASSERT(3 == ngtcp2_map_size(&map));
 
-  CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(shrubbery.key), &shrubbery));
+  CU_ASSERT(0 == ngtcp2_map_insert(&map, shrubbery.key, &shrubbery));
   CU_ASSERT(4 == ngtcp2_map_size(&map));
 
-  CU_ASSERT(strcmp("baz", ((strentry *)ngtcp2_map_find(&map, to_key(3)))->str) == 0);
+  CU_ASSERT(strcmp("baz", ((strentry *)ngtcp2_map_find(&map, 3))->str) == 0);
 
-  ngtcp2_map_remove(&map, to_key(3));
+  ngtcp2_map_remove(&map, 3);
   CU_ASSERT(3 == ngtcp2_map_size(&map));
-  CU_ASSERT(NULL == ngtcp2_map_find(&map, to_key(3)));
+  CU_ASSERT(NULL == ngtcp2_map_find(&map, 3));
 
-  ngtcp2_map_remove(&map, to_key(1));
+  ngtcp2_map_remove(&map, 1);
   CU_ASSERT(2 == ngtcp2_map_size(&map));
-  CU_ASSERT(NULL == ngtcp2_map_find(&map, to_key(1)));
+  CU_ASSERT(NULL == ngtcp2_map_find(&map, 1));
 
   /* Erasing non-existent entry */
-  ngtcp2_map_remove(&map, to_key(1));
+  ngtcp2_map_remove(&map, 1);
   CU_ASSERT(2 == ngtcp2_map_size(&map));
-  CU_ASSERT(NULL == ngtcp2_map_find(&map, to_key(1)));
+  CU_ASSERT(NULL == ngtcp2_map_find(&map, 1));
 
-  CU_ASSERT(strcmp("bar", ((strentry *)ngtcp2_map_find(&map, to_key(2)))->str) == 0);
-  CU_ASSERT(strcmp("shrubbery", ((strentry *)ngtcp2_map_find(&map, to_key(4)))->str) ==
+  CU_ASSERT(strcmp("bar", ((strentry *)ngtcp2_map_find(&map, 2))->str) == 0);
+  CU_ASSERT(strcmp("shrubbery", ((strentry *)ngtcp2_map_find(&map, 4))->str) ==
             0);
 
   ngtcp2_map_free(&map);
@@ -130,16 +118,16 @@ void test_ngtcp2_map_functional(void) {
   int i;
   strentry *ent;
 
-  ngtcp2_map_init(&map, ngtcp2_mem_default(), test_map_hash, test_map_keys_equal);
+  ngtcp2_map_init(&map, ngtcp2_mem_default());
   for (i = 0; i < NUM_ENT; ++i) {
-    strentry_init(&arr[i], i + 1, "foo");
+    strentry_init(&arr[i], (ngtcp2_map_key_type)(i + 1), "foo");
     order[i] = i + 1;
   }
   /* insertion */
   shuffle(order, NUM_ENT);
   for (i = 0; i < NUM_ENT; ++i) {
     ent = &arr[order[i] - 1];
-    CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(ent->key), ent));
+    CU_ASSERT(0 == ngtcp2_map_insert(&map, ent->key, ent));
   }
 
   CU_ASSERT(NUM_ENT == ngtcp2_map_size(&map));
@@ -149,21 +137,21 @@ void test_ngtcp2_map_functional(void) {
   /* find */
   shuffle(order, NUM_ENT);
   for (i = 0; i < NUM_ENT; ++i) {
-    CU_ASSERT(NULL != ngtcp2_map_find(&map, to_key(order[i])));
+    CU_ASSERT(NULL != ngtcp2_map_find(&map, (ngtcp2_map_key_type)order[i]));
   }
   /* remove */
   for (i = 0; i < NUM_ENT; ++i) {
-    CU_ASSERT(0 == ngtcp2_map_remove(&map, to_key(order[i])));
+    CU_ASSERT(0 == ngtcp2_map_remove(&map, (ngtcp2_map_key_type)order[i]));
   }
 
   /* each_free (but no op function for testing purpose) */
   for (i = 0; i < NUM_ENT; ++i) {
-    strentry_init(&arr[i], i + 1, "foo");
+    strentry_init(&arr[i], (ngtcp2_map_key_type)(i + 1), "foo");
   }
   /* insert once again */
   for (i = 0; i < NUM_ENT; ++i) {
     ent = &arr[i];
-    CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(ent->key), ent));
+    CU_ASSERT(0 == ngtcp2_map_insert(&map, ent->key, ent));
   }
   ngtcp2_map_each_free(&map, eachfun, NULL);
   ngtcp2_map_free(&map);
@@ -183,17 +171,17 @@ void test_ngtcp2_map_each_free(void) {
            *baz = mem->malloc(sizeof(strentry), NULL),
            *shrubbery = mem->malloc(sizeof(strentry), NULL);
   ngtcp2_map map;
-  ngtcp2_map_init(&map, ngtcp2_mem_default(), test_map_hash, test_map_keys_equal);
+  ngtcp2_map_init(&map, ngtcp2_mem_default());
 
   strentry_init(foo, 1, "foo");
   strentry_init(bar, 2, "bar");
   strentry_init(baz, 3, "baz");
   strentry_init(shrubbery, 4, "shrubbery");
 
-  ngtcp2_map_insert(&map, to_key(foo->key), foo);
-  ngtcp2_map_insert(&map, to_key(bar->key), bar);
-  ngtcp2_map_insert(&map, to_key(baz->key), baz);
-  ngtcp2_map_insert(&map, to_key(shrubbery->key), shrubbery);
+  ngtcp2_map_insert(&map, foo->key, foo);
+  ngtcp2_map_insert(&map, bar->key, bar);
+  ngtcp2_map_insert(&map, baz->key, baz);
+  ngtcp2_map_insert(&map, shrubbery->key, shrubbery);
 
   ngtcp2_map_each_free(&map, entry_free, (void *)mem);
   ngtcp2_map_free(&map);
@@ -206,9 +194,9 @@ void test_ngtcp2_map_clear(void) {
 
   strentry_init(&foo, 1, "foo");
 
-  ngtcp2_map_init(&map, mem, test_map_hash, test_map_keys_equal);
+  ngtcp2_map_init(&map, mem);
 
-  CU_ASSERT(0 == ngtcp2_map_insert(&map, to_key(foo.key), &foo));
+  CU_ASSERT(0 == ngtcp2_map_insert(&map, foo.key, &foo));
 
   ngtcp2_map_clear(&map);
 
