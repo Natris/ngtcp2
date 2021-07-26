@@ -6940,8 +6940,7 @@ static int conn_recv_new_connection_id(ngtcp2_conn *conn,
 
   for (i = 0; i < conn->pvs.size; ++i) {
     pv = conn->pvs.buf[i];
-    rv = ngtcp2_dcid_verify_uniqueness(&pv->dcid, fr->seq,
-                                       &fr->cid,
+    rv = ngtcp2_dcid_verify_uniqueness(&pv->dcid, fr->seq, &fr->cid,
                                        fr->stateless_reset_token);
     if (rv != 0) {
       return rv;
@@ -6949,14 +6948,14 @@ static int conn_recv_new_connection_id(ngtcp2_conn *conn,
     if (ngtcp2_cid_eq(&pv->dcid.cid, &fr->cid)) {
       found = 1;
     }
+    /*FIXME: IMO this was a bug that this was not being checked, or am I wrong?*/
     if (pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE) {
-      rv = ngtcp2_dcid_verify_uniqueness(&pv->fallback_dcid, fr->seq,
-                                         &fr->cid,
+      rv = ngtcp2_dcid_verify_uniqueness(&pv->fallback_dcid, fr->seq, &fr->cid,
                                          fr->stateless_reset_token);
       if (rv != 0) {
         return rv;
       }
-      if (ngtcp2_cid_eq(&pv->dcid.cid, &fr->cid)) {
+      if (ngtcp2_cid_eq(&pv->fallback_dcid.cid, &fr->cid)) {
         found = 1;
       }
     }
