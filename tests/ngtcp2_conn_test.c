@@ -128,14 +128,12 @@ static ngtcp2_crypto_km null_ckm = {
 
 static ngtcp2_path_storage null_path;
 static ngtcp2_path_storage new_path;
-static ngtcp2_path_storage new_local_null_remote;
 
 static ngtcp2_pkt_info null_pi;
 
 void init_static_path(void) {
   path_init(&null_path, 0, 0, 0, 0);
   path_init(&new_path, 1, 0, 2, 0);
-  path_init(&new_local_null_remote, 1, 0, 0, 0);
 }
 
 static ngtcp2_vec *null_datav(ngtcp2_vec *datav, size_t len) {
@@ -4669,7 +4667,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(spktlen > 0);
 
-  assert(NULL == conn->srv_pv);
+  assert(NULL == conn->pv);
 
   frs[0].type = NGTCP2_FRAME_PING;
   frs[1].type = NGTCP2_FRAME_NEW_CONNECTION_ID;
@@ -4695,11 +4693,11 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(0 == rv);
 
-  assert(NULL != conn->srv_pv);
+  assert(NULL != conn->pv);
 
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(1 == conn->srv_pv->dcid.seq);
-  CU_ASSERT(0 == conn->srv_pv->fallback_dcid.seq);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(1 == conn->pv->dcid.seq);
+  CU_ASSERT(0 == conn->pv->fallback_dcid.seq);
   CU_ASSERT(2 == ngtcp2_ringbuf_len(&conn->dcid.unused));
 
   fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
@@ -4715,9 +4713,9 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(0 == rv);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(2 == conn->srv_pv->dcid.seq);
-  CU_ASSERT(3 == conn->srv_pv->fallback_dcid.seq);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(2 == conn->pv->dcid.seq);
+  CU_ASSERT(3 == conn->pv->fallback_dcid.seq);
 
   frc = conn->pktns.tx.frq;
 
@@ -4740,7 +4738,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(spktlen > 0);
 
-  assert(NULL == conn->srv_pv);
+  assert(NULL == conn->pv);
 
   frs[0].type = NGTCP2_FRAME_PING;
   frs[1].type = NGTCP2_FRAME_NEW_CONNECTION_ID;
@@ -4754,11 +4752,11 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(0 == rv);
 
-  assert(NULL != conn->srv_pv);
+  assert(NULL != conn->pv);
 
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(1 == conn->srv_pv->dcid.seq);
-  CU_ASSERT(0 == conn->srv_pv->fallback_dcid.seq);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(1 == conn->pv->dcid.seq);
+  CU_ASSERT(0 == conn->pv->fallback_dcid.seq);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
 
   fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
@@ -4775,7 +4773,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
   CU_ASSERT(0 == rv);
   CU_ASSERT(2 == conn->dcid.current.seq);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
-  CU_ASSERT(NULL == conn->srv_pv);
+  CU_ASSERT(NULL == conn->pv);
 
   frc = conn->pktns.tx.frq;
 
@@ -4799,7 +4797,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(spktlen > 0);
 
-  assert(NULL == conn->srv_pv);
+  assert(NULL == conn->pv);
 
   frs[0].type = NGTCP2_FRAME_PING;
   frs[1].type = NGTCP2_FRAME_NEW_CONNECTION_ID;
@@ -4813,18 +4811,18 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(0 == rv);
 
-  assert(NULL != conn->srv_pv);
+  assert(NULL != conn->pv);
 
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(1 == conn->srv_pv->dcid.seq);
-  CU_ASSERT(0 == conn->srv_pv->fallback_dcid.seq);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(1 == conn->pv->dcid.seq);
+  CU_ASSERT(0 == conn->pv->fallback_dcid.seq);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
 
   /* Overwrite seq in pv->dcid so that pv->dcid cannot be renewed. */
-  conn->srv_pv->dcid.seq = 2;
+  conn->pv->dcid.seq = 2;
   /* Internally we assume that if primary dcid and pv->dcid differ,
      then no fallback dcid is present. */
-  conn->srv_pv->flags &= (uint8_t)~NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE;
+  conn->pv->flags &= (uint8_t)~NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE;
 
   fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
   fr.new_connection_id.seq = 3;
@@ -4840,7 +4838,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
   CU_ASSERT(0 == rv);
   CU_ASSERT(3 == conn->dcid.current.seq);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
-  CU_ASSERT(NULL == conn->srv_pv);
+  CU_ASSERT(NULL == conn->pv);
 
   frc = conn->pktns.tx.frq;
 
@@ -4864,7 +4862,7 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(spktlen > 0);
 
-  assert(NULL == conn->srv_pv);
+  assert(NULL == conn->pv);
 
   frs[0].type = NGTCP2_FRAME_NEW_CONNECTION_ID;
   frs[0].new_connection_id.seq = 1;
@@ -4924,9 +4922,9 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
   CU_ASSERT(0 == rv);
   CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.unused));
   CU_ASSERT(2 == conn->dcid.current.seq);
-  CU_ASSERT(NULL != conn->srv_pv);
+  CU_ASSERT(NULL != conn->pv);
   CU_ASSERT(ngtcp2_cid_eq(&frs[1].new_connection_id.cid,
-                          &conn->srv_pv->fallback_dcid.cid));
+                          &conn->pv->fallback_dcid.cid));
 
   /* This will send PATH_CHALLENGE frame */
   spktlen = ngtcp2_conn_write_pkt(conn, NULL, NULL, buf, sizeof(buf), ++t);
@@ -4943,8 +4941,8 @@ void test_ngtcp2_conn_recv_new_connection_id(void) {
 
   CU_ASSERT(0 == rv);
   /* Server starts probing old path */
-  CU_ASSERT(NULL != conn->srv_pv);
-  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->srv_pv->dcid.ps.path));
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->pv->dcid.ps.path));
 
   /* Receive NEW_CONNECTION_ID seq=1 again, which should be ignored. */
   pktlen = write_pkt(conn, buf, sizeof(buf), &conn->oscid, ++pkt_num, frs, 2);
@@ -5092,12 +5090,12 @@ void test_ngtcp2_conn_server_path_validation(void) {
   rv = ngtcp2_conn_read_pkt(conn, &new_path1.path, &null_pi, buf, pktlen, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(NULL != conn->srv_pv);
+  CU_ASSERT(NULL != conn->pv);
 
   spktlen = ngtcp2_conn_write_pkt(conn, NULL, NULL, buf, sizeof(buf), ++t);
 
   CU_ASSERT(spktlen > 0);
-  CU_ASSERT(ngtcp2_ringbuf_len(&conn->srv_pv->ents) > 0);
+  CU_ASSERT(ngtcp2_ringbuf_len(&conn->pv->ents) > 0);
 
   fr.type = NGTCP2_FRAME_PATH_RESPONSE;
   memset(fr.path_response.data, 0, sizeof(fr.path_response.data));
@@ -5128,12 +5126,12 @@ void test_ngtcp2_conn_server_path_validation(void) {
   rv = ngtcp2_conn_read_pkt(conn, &new_path2.path, &null_pi, buf, pktlen, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(NULL != conn->srv_pv);
+  CU_ASSERT(NULL != conn->pv);
 
   spktlen = ngtcp2_conn_write_pkt(conn, NULL, NULL, buf, sizeof(buf), ++t);
 
   CU_ASSERT(spktlen > 0);
-  CU_ASSERT(ngtcp2_ringbuf_len(&conn->srv_pv->ents) > 0);
+  CU_ASSERT(ngtcp2_ringbuf_len(&conn->pv->ents) > 0);
 
   fr.type = NGTCP2_FRAME_PATH_RESPONSE;
   memset(fr.path_response.data, 0, sizeof(fr.path_response.data));
@@ -5186,7 +5184,7 @@ void test_ngtcp2_conn_client_connection_migration(void) {
                                                 ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(0 == ngtcp2_conn_get_pv_count(conn));
+  CU_ASSERT(0 == conn->pvs.size);
   CU_ASSERT(
       ngtcp2_addr_eq(&new_path.path.local, &conn->dcid.current.ps.path.local));
   CU_ASSERT(ngtcp2_addr_eq(&null_path.path.remote,
@@ -5215,8 +5213,10 @@ void test_ngtcp2_conn_client_connection_migration(void) {
   rv = ngtcp2_conn_initiate_migration(conn, &new_path.path.local, &ud, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(1 == ngtcp2_conn_get_pv_count(conn));
-  CU_ASSERT(NULL != ngtcp2_conn_get_pv_for_path(conn, &new_local_null_remote.path));
+  CU_ASSERT(1 == conn->pvs.size);
+  CU_ASSERT(ngtcp2_addr_eq(&conn->pvs.buf[0]->dcid.ps.path.local, &new_path.path.local));
+  CU_ASSERT(ngtcp2_addr_eq(&conn->pvs.buf[0]->dcid.ps.path.remote, &conn->dcid.current.ps.path.remote));
+  CU_ASSERT(conn->pvs.buf[0]->dcid.ps.path.user_data == &ud);
   CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
   CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
   CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
@@ -5231,11 +5231,10 @@ void test_ngtcp2_conn_client_connection_migration(void) {
   pktlen = write_single_frame_pkt(conn, buf, sizeof(buf), &conn->oscid,
                                   ++pkt_num, &fr);
 
-  rv = ngtcp2_conn_read_pkt(conn, &new_local_null_remote.path, &null_pi, buf, pktlen, ++t);
+  rv = ngtcp2_conn_read_pkt(conn, &null_path.path, &null_pi, buf, pktlen, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(NULL == ngtcp2_conn_get_pv_for_path(conn, &new_local_null_remote.path));
-  CU_ASSERT(0 == ngtcp2_conn_get_pv_count(conn));
+  CU_ASSERT(0 == conn->pvs.size);
   CU_ASSERT(
       ngtcp2_addr_eq(&new_path.path.local, &conn->dcid.current.ps.path.local));
   CU_ASSERT(ngtcp2_addr_eq(&null_path.path.remote,
@@ -7017,9 +7016,9 @@ void test_ngtcp2_conn_path_validation(void) {
   rv = ngtcp2_conn_read_pkt(conn, &rpath.path, &null_pi, buf, pktlen, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(NULL != conn->srv_pv);
-  CU_ASSERT(0 == conn->srv_pv->dcid.seq);
-  CU_ASSERT(ngtcp2_path_eq(&conn->srv_pv->dcid.ps.path, &rpath.path));
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(0 == conn->pv->dcid.seq);
+  CU_ASSERT(ngtcp2_path_eq(&conn->pv->dcid.ps.path, &rpath.path));
 
   ngtcp2_path_storage_zero(&wpath);
   spktlen =
@@ -7028,13 +7027,13 @@ void test_ngtcp2_conn_path_validation(void) {
   /* Server has not received enough bytes to pad probing packet. */
   CU_ASSERT(1200 > spktlen);
   CU_ASSERT(ngtcp2_path_eq(&rpath.path, &wpath.path));
-  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->srv_pv->ents));
+  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->pv->ents));
 
-  ent = ngtcp2_ringbuf_get(&conn->srv_pv->ents, 0);
+  ent = ngtcp2_ringbuf_get(&conn->pv->ents, 0);
 
   CU_ASSERT(ent->flags & NGTCP2_PV_ENTRY_FLAG_UNDERSIZED);
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(!(conn->srv_pv->flags & NGTCP2_PV_FLAG_MTU_PROBE));
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(!(conn->pv->flags & NGTCP2_PV_FLAG_MTU_PROBE));
 
   frs[0].type = NGTCP2_FRAME_PATH_RESPONSE;
   memcpy(frs[0].path_response.data, ent->data, sizeof(ent->data));
@@ -7045,9 +7044,9 @@ void test_ngtcp2_conn_path_validation(void) {
   CU_ASSERT(0 == rv);
 
   /* Start another path validation to probe least MTU */
-  CU_ASSERT(NULL != conn->srv_pv);
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_MTU_PROBE);
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE);
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_MTU_PROBE);
 
   ngtcp2_path_storage_zero(&wpath);
   spktlen =
@@ -7055,9 +7054,9 @@ void test_ngtcp2_conn_path_validation(void) {
 
   CU_ASSERT(1200 <= spktlen);
   CU_ASSERT(ngtcp2_path_eq(&rpath.path, &wpath.path));
-  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->srv_pv->ents));
+  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->pv->ents));
 
-  ent = ngtcp2_ringbuf_get(&conn->srv_pv->ents, 0);
+  ent = ngtcp2_ringbuf_get(&conn->pv->ents, 0);
   frs[0].type = NGTCP2_FRAME_PATH_RESPONSE;
   memcpy(frs[0].path_response.data, ent->data, sizeof(ent->data));
 
@@ -7067,10 +7066,10 @@ void test_ngtcp2_conn_path_validation(void) {
   CU_ASSERT(0 == rv);
 
   /* Now perform another validation to old path */
-  CU_ASSERT(NULL != conn->srv_pv);
-  CU_ASSERT(!(conn->srv_pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE));
-  CU_ASSERT(!(conn->srv_pv->flags & NGTCP2_PV_FLAG_MTU_PROBE));
-  CU_ASSERT(conn->srv_pv->flags & NGTCP2_PV_FLAG_DONT_CARE);
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(!(conn->pv->flags & NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE));
+  CU_ASSERT(!(conn->pv->flags & NGTCP2_PV_FLAG_MTU_PROBE));
+  CU_ASSERT(conn->pv->flags & NGTCP2_PV_FLAG_DONT_CARE);
 
   ngtcp2_path_storage_zero(&wpath);
   spktlen =
@@ -7078,7 +7077,7 @@ void test_ngtcp2_conn_path_validation(void) {
 
   CU_ASSERT(1200 <= spktlen);
   CU_ASSERT(ngtcp2_path_eq(&null_path.path, &wpath.path));
-  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->srv_pv->ents));
+  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->pv->ents));
 
   ngtcp2_conn_del(conn);
 }

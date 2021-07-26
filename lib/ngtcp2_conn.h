@@ -579,9 +579,9 @@ struct ngtcp2_conn {
   ngtcp2_map strms;
   ngtcp2_conn_stat cstat;
   ngtcp2_pvlist pvs;
-  /*server side currently only supports single pending pv, and if it is present in pvs, srv_pv points to it
+  /*server side currently only supports single pending pv, and if it is present in pvs, pv points to it
    * this pv always has NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE flag set*/
-  ngtcp2_pv * srv_pv;
+  ngtcp2_pv *pv;
   ngtcp2_log log;
   ngtcp2_qlog qlog;
   ngtcp2_rst rst;
@@ -864,8 +864,6 @@ ngtcp2_tstamp ngtcp2_conn_loss_detection_expiry(ngtcp2_conn *conn);
 
 ngtcp2_duration ngtcp2_conn_compute_pto(ngtcp2_conn *conn, ngtcp2_pktns *pktns);
 
-
-size_t ngtcp2_conn_get_pv_count(ngtcp2_conn *conn);
 
 ngtcp2_pv * ngtcp2_conn_get_pv_for_path(ngtcp2_conn *conn,
                                         const ngtcp2_path *path);
