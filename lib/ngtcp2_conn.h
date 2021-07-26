@@ -578,7 +578,7 @@ struct ngtcp2_conn {
 
   ngtcp2_map strms;
   ngtcp2_conn_stat cstat;
-  ngtcp2_map pvs;
+  ngtcp2_pvlist pvs;
   /*server side currently only supports single pending pv, and if it is present in pvs, srv_pv points to it
    * this pv always has NGTCP2_PV_FLAG_FALLBACK_ON_FAILURE flag set*/
   ngtcp2_pv * srv_pv;
