@@ -578,6 +578,7 @@ struct ngtcp2_conn {
 
   ngtcp2_map strms;
   ngtcp2_conn_stat cstat;
+  ngtcp2_pvlist pvs;
   ngtcp2_pv *pv;
   ngtcp2_log log;
   ngtcp2_qlog qlog;
@@ -860,5 +861,9 @@ void ngtcp2_conn_cancel_expired_ack_delay_timer(ngtcp2_conn *conn,
 ngtcp2_tstamp ngtcp2_conn_loss_detection_expiry(ngtcp2_conn *conn);
 
 ngtcp2_duration ngtcp2_conn_compute_pto(ngtcp2_conn *conn, ngtcp2_pktns *pktns);
+
+
+ngtcp2_pv * ngtcp2_conn_get_pv_for_path(ngtcp2_conn *conn,
+                                        const ngtcp2_path *path);
 
 #endif /* NGTCP2_CONN_H */
