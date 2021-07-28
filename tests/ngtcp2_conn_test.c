@@ -5213,7 +5213,7 @@ void test_ngtcp2_conn_client_connection_migration(void) {
   rv = ngtcp2_conn_initiate_migration(conn, &new_path.path.local, &ud, ++t);
 
   CU_ASSERT(0 == rv);
-  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(1 == conn->pvs.size);
   CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
   CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
   CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));

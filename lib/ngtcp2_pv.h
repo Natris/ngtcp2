@@ -85,6 +85,7 @@ void ngtcp2_pv_entry_init(ngtcp2_pv_entry *pvent, const uint8_t *data,
 #define NGTCP2_PV_FLAG_PREFERRED_ADDR 0x10
 
 typedef struct ngtcp2_pv ngtcp2_pv;
+typedef struct ngtcp2_pvlist ngtcp2_pvlist;
 
 /*
  * ngtcp2_pv is the context of a single path validation.
@@ -116,6 +117,14 @@ struct ngtcp2_pv {
   uint8_t flags;
 };
 
+struct ngtcp2_pvlist {
+  /* buf points to the static sided buffer. */
+  ngtcp2_pv **buf;
+  /* how many pvs can be stored */
+  size_t capacity;
+  /* how many pvs are currently stored */
+  size_t size;
+};
 /*
  * ngtcp2_pv_new creates new ngtcp2_pv object and assigns its pointer
  * to |*ppv|.  This function makes a copy of |dcid|.  |timeout| is a
@@ -192,5 +201,13 @@ ngtcp2_tstamp ngtcp2_pv_next_expiry(ngtcp2_pv *pv);
  * ngtcp2_pv_cancel_expired_timer cancels the expired timer.
  */
 void ngtcp2_pv_cancel_expired_timer(ngtcp2_pv *pv, ngtcp2_tstamp ts);
+
+
+int ngtcp2_pvlist_init(ngtcp2_pvlist * pvl, size_t capacity, const ngtcp2_mem *mem);
+void ngtcp2_pvlist_del(ngtcp2_pvlist * pvl, const ngtcp2_mem *mem);
+
+void ngtcp2_pvlist_push_back(ngtcp2_pvlist * pvl, ngtcp2_pv * pv);
+void ngtcp2_pvlist_remove(ngtcp2_pvlist * pvl, ngtcp2_pv * pv);
+
 
 #endif /* NGTCP2_PV_H */

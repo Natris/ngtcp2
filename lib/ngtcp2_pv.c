@@ -178,3 +178,36 @@ void ngtcp2_pv_cancel_expired_timer(ngtcp2_pv *pv, ngtcp2_tstamp ts) {
 
   pv->flags |= NGTCP2_PV_FLAG_CANCEL_TIMER;
 }
+
+int ngtcp2_pvlist_init(ngtcp2_pvlist * pvl, size_t capacity, const ngtcp2_mem *mem) {
+  pvl->buf = ngtcp2_mem_malloc(mem, capacity * sizeof(ngtcp2_pv*));
+  if (pvl->buf == NULL) {
+    return NGTCP2_ERR_NOMEM;
+  }
+  pvl->capacity = capacity;
+  pvl->size = 0;
+  return 0;
+}
+
+void ngtcp2_pvlist_del(ngtcp2_pvlist * pvl, const ngtcp2_mem *mem) {
+  ngtcp2_mem_free(mem, pvl->buf);
+}
+
+void ngtcp2_pvlist_push_back(ngtcp2_pvlist * pvl, ngtcp2_pv * pv) {
+  assert(pvl->size < pvl->capacity);
+  pvl->buf[pvl->size++] = pv;
+}
+
+void ngtcp2_pvlist_remove(ngtcp2_pvlist * pvl, ngtcp2_pv * pv) {
+  size_t i;
+  for (i = 0; i < pvl->size; ++i) {
+    if (pvl->buf[i] == pv) {
+      memmove(pvl->buf + i,
+              pvl->buf + i + 1,
+              (pvl->size - (i + 1)) * sizeof(ngtcp2_pv*));
+      --pvl->size;
+      return;
+    }
+  }
+  assert(0);
+}
