@@ -20,6 +20,8 @@
 # LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+EXTRA_DIST = CMakeLists.txt
+
 AM_CFLAGS = $(WARNCFLAGS) $(DEBUGCFLAGS) $(EXTRACFLAG)
 AM_CPPFLAGS = -I$(top_srcdir)/lib/includes -I$(top_builddir)/lib/includes \
 	-I$(top_srcdir)/lib -DBUILDING_NGTCP2 \
@@ -36,6 +38,6 @@ lib_LTLIBRARIES = libngtcp2_crypto_openssl.la
 
 libngtcp2_crypto_openssl_la_SOURCES = openssl.c ../shared.c ../shared.h
 libngtcp2_crypto_openssl_la_LDFLAGS = -no-undefined \
-	-version-info $(CRYPTO_OPENSSL_LT_CURRENT):$(CRYPTO_OPENSSL_LT_REVISION):$(CRYPTO_OPENSSL_LT_AGE) \
+	-version-info $(CRYPTO_OPENSSL_LT_CURRENT):$(CRYPTO_OPENSSL_LT_REVISION):$(CRYPTO_OPENSSL_LT_AGE)
+libngtcp2_crypto_openssl_la_LIBADD = $(top_builddir)/lib/libngtcp2.la \
 	@OPENSSL_LIBS@
-libngtcp2_crypto_openssl_la_LIBADD = $(top_builddir)/lib/libngtcp2.la

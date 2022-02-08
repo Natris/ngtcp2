@@ -20,6 +20,7 @@
 # LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+EXTRA_DIST = CMakeLists.txt
 
 AM_CFLAGS = $(WARNCFLAGS) $(DEBUGCFLAGS)
 AM_CXXFLAGS = $(WARNCXXFLAGS) $(DEBUGCFLAGS)
@@ -42,24 +43,28 @@ LDADD = $(top_builddir)/lib/libngtcp2.la \
 SERVER_SRCS = \
 	server_base.cc server_base.h \
 	tls_server_context.h \
+	tls_server_session.h \
 	template.h \
 	debug.cc debug.h \
 	util.cc util.h \
 	shared.cc shared.h \
-	http.cc http.h
+	http.cc http.h \
+	network.h
 
 CLIENT_SRCS = \
 	client_base.cc client_base.h \
 	tls_client_context.h \
+	tls_client_session.h \
 	template.h \
 	debug.cc debug.h \
 	util.cc util.h \
-	shared.cc shared.h
+	shared.cc shared.h \
+	network.h
 
 noinst_PROGRAMS =
 
 if ENABLE_EXAMPLE_OPENSSL
-noinst_PROGRAMS += client server h09client h09server perfserver simpleclient
+noinst_PROGRAMS += client server h09client h09server simpleclient
 
 simpleclient_CPPFLAGS = ${AM_CPPFLAGS} \
 	@JEMALLOC_CFLAGS@ @OPENSSL_CFLAGS@ -DWITH_EXAMPLE_OPENSSL
@@ -84,7 +89,7 @@ client_SOURCES = client.cc client.h ${CLIENT_SRCS} \
 server_CPPFLAGS = ${client_CPPFLAGS}
 server_LDADD = ${client_LDADD}
 server_SOURCES = server.cc server.h ${SERVER_SRCS} \
-	tls_server_context_openssl.cc tls_server_context_openssl_h \
+	tls_server_context_openssl.cc tls_server_context_openssl.h \
 	tls_server_session_openssl.cc tls_server_session_openssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
 	util_openssl.cc util_aead_openssl.cc
@@ -100,14 +105,6 @@ h09client_SOURCES = h09client.cc h09client.h ${CLIENT_SRCS} \
 h09server_CPPFLAGS = ${client_CPPFLAGS}
 h09server_LDADD = ${client_LDADD}
 h09server_SOURCES = h09server.cc h09server.h ${SERVER_SRCS} \
-	tls_server_context_openssl.cc tls_server_context_openssl.h \
-	tls_server_session_openssl.cc tls_server_session_openssl.h \
-	tls_session_base_openssl.cc tls_session_base_openssl.h \
-	util_openssl.cc util_aead_openssl.cc
-
-perfserver_CPPFLAGS = ${client_CPPFLAGS}
-perfserver_LDADD = ${client_LDADD}
-perfserver_SOURCES = perfserver.cc perfserver.h ${SERVER_SRCS} \
 	tls_server_context_openssl.cc tls_server_context_openssl.h \
 	tls_server_session_openssl.cc tls_server_session_openssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
@@ -145,7 +142,7 @@ noinst_PROGRAMS += bsslclient bsslserver
 
 bsslclient_CPPFLAGS = ${AM_CPPFLAGS} @BORINGSSL_CFLAGS@ -DWITH_EXAMPLE_BORINGSSL
 bsslclient_LDADD = ${LDADD} \
-	$(top_builddir)/crypto/boringssl/libngtcp2_crypto_boringssl.la \
+	$(top_builddir)/crypto/boringssl/libngtcp2_crypto_boringssl.a \
 	@BORINGSSL_LIBS@
 bsslclient_SOURCES = client.cc client.h ${CLIENT_SRCS} \
 	tls_client_context_boringssl.cc tls_client_context_boringssl.h \
@@ -156,7 +153,7 @@ bsslclient_SOURCES = client.cc client.h ${CLIENT_SRCS} \
 bsslserver_CPPFLAGS = ${bsslclient_CPPFLAGS}
 bsslserver_LDADD = ${bsslclient_LDADD}
 bsslserver_SOURCES = server.cc server.h ${SERVER_SRCS} \
-	tls_server_context_boringssl.cc tls_server_context_boringssl_h \
+	tls_server_context_boringssl.cc tls_server_context_boringssl.h \
 	tls_server_session_boringssl.cc tls_server_session_boringssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
 	util_openssl.cc util_aead_boringssl.cc

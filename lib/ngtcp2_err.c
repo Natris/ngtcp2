@@ -64,8 +64,8 @@ const char *ngtcp2_strerror(int liberr) {
     return "ERR_MALFORMED_TRANSPORT_PARAM";
   case NGTCP2_ERR_FRAME_ENCODING:
     return "ERR_FRAME_ENCODING";
-  case NGTCP2_ERR_TLS_DECRYPT:
-    return "ERR_TLS_DECRYPT";
+  case NGTCP2_ERR_DECRYPT:
+    return "ERR_DECRYPT";
   case NGTCP2_ERR_STREAM_SHUT_WR:
     return "ERR_STREAM_SHUT_WR";
   case NGTCP2_ERR_STREAM_NOT_FOUND:
@@ -82,8 +82,6 @@ const char *ngtcp2_strerror(int liberr) {
     return "ERR_TRANSPORT_PARAM";
   case NGTCP2_ERR_DISCARD_PKT:
     return "ERR_DISCARD_PKT";
-  case NGTCP2_ERR_PATH_VALIDATION_FAILED:
-    return "ERR_PATH_VALIDATION_FAILED";
   case NGTCP2_ERR_CONN_ID_BLOCKED:
     return "ERR_CONN_ID_BLOCKED";
   case NGTCP2_ERR_CALLBACK_FAILURE:
@@ -104,6 +102,8 @@ const char *ngtcp2_strerror(int liberr) {
     return "ERR_NO_VIABLE_PATH";
   case NGTCP2_ERR_VERSION_NEGOTIATION:
     return "ERR_VERSION_NEGOTIATION";
+  case NGTCP2_ERR_HANDSHAKE_TIMEOUT:
+    return "ERR_HANDSHAKE_TIMEOUT";
   default:
     return "(unknown)";
   }

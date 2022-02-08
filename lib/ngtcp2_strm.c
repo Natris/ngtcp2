@@ -353,7 +353,7 @@ int ngtcp2_strm_streamfrq_pop(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
   ngtcp2_frame_chain *frc, *nfrc;
   int rv;
   size_t nmerged;
-  size_t datalen;
+  uint64_t datalen;
   ngtcp2_vec a[NGTCP2_MAX_STREAM_DATACNT];
   ngtcp2_vec b[NGTCP2_MAX_STREAM_DATACNT];
   size_t acnt, bcnt;
@@ -444,7 +444,7 @@ int ngtcp2_strm_streamfrq_pop(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
     return 0;
   }
 
-  left -= datalen;
+  left -= (size_t)datalen;
 
   ngtcp2_vec_copy(a, fr->data, fr->datacnt);
   acnt = fr->datacnt;
@@ -542,7 +542,7 @@ uint64_t ngtcp2_strm_streamfrq_unacked_offset(ngtcp2_strm *strm) {
   ngtcp2_stream *fr;
   ngtcp2_range gap;
   ngtcp2_ksl_it it;
-  size_t datalen;
+  uint64_t datalen;
 
   assert(strm->tx.streamfrq);
   assert(ngtcp2_ksl_len(strm->tx.streamfrq));
@@ -679,4 +679,16 @@ int ngtcp2_strm_ack_data(ngtcp2_strm *strm, uint64_t offset, uint64_t len) {
   }
 
   return ngtcp2_gaptr_push(strm->tx.acked_offset, offset, len);
+}
+
+void ngtcp2_strm_set_app_error_code(ngtcp2_strm *strm,
+                                    uint64_t app_error_code) {
+  if (strm->flags & NGTCP2_STRM_FLAG_APP_ERROR_CODE_SET) {
+    return;
+  }
+
+  assert(0 == strm->app_error_code);
+
+  strm->flags |= NGTCP2_STRM_FLAG_APP_ERROR_CODE_SET;
+  strm->app_error_code = app_error_code;
 }

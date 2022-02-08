@@ -43,6 +43,7 @@
 #include "ngtcp2_pq.h"
 #include "ngtcp2_cc.h"
 #include "ngtcp2_bbr.h"
+#include "ngtcp2_bbr2.h"
 #include "ngtcp2_pv.h"
 #include "ngtcp2_cid.h"
 #include "ngtcp2_buf.h"
@@ -117,6 +118,11 @@ typedef enum {
    packets sent in NGTCP2_ECN_STATE_TESTING period. */
 #define NGTCP2_ECN_MAX_NUM_VALIDATION_PKTS 10
 
+/* NGTCP2_CONNECTION_CLOSE_ERROR_MAX_REASONLEN is the maximum length
+   of reason phrase to remember.  If the received reason phrase is
+   longer than this value, it is truncated. */
+#define NGTCP2_CONNECTION_CLOSE_ERROR_MAX_REASONLEN 1024
+
 /*
  * ngtcp2_max_frame is defined so that it covers the largest ACK
  * frame.
@@ -172,6 +178,10 @@ void ngtcp2_path_challenge_entry_init(ngtcp2_path_challenge_entry *pcent,
    handshake retransmission has done when server receives overlapping
    Initial crypto data. */
 #define NGTCP2_CONN_FLAG_HANDSHAKE_EARLY_RETRANSMIT 0x0200
+/* NGTCP2_CONN_FLAG_CLEAR_FIXED_BIT indicates that the local endpoint
+   sends a QUIC packet without Fixed Bit set if a remote endpoint
+   supports Greasing QUIC Bit extension. */
+#define NGTCP2_CONN_FLAG_CLEAR_FIXED_BIT 0x0400
 /* NGTCP2_CONN_FLAG_KEY_UPDATE_NOT_CONFIRMED is set when key update is
    not confirmed by the local endpoint.  That is, it has not received
    ACK frame which acknowledges packet which is encrypted with new
@@ -269,9 +279,9 @@ typedef struct ngtcp2_pktns {
       struct {
         /* ect0, ect1, ce are the ECN counts received in the latest
            ACK frame. */
-        size_t ect0;
-        size_t ect1;
-        size_t ce;
+        uint64_t ect0;
+        uint64_t ect1;
+        uint64_t ce;
       } ack;
     } ecn;
   } rx;
@@ -431,8 +441,8 @@ struct ngtcp2_conn {
     uint64_t window;
     /* path_challenge stores received PATH_CHALLENGE data. */
     ngtcp2_ringbuf path_challenge;
-    /* ccec is the received connection close error code. */
-    ngtcp2_connection_close_error_code ccec;
+    /* ccerr is the received connection close error. */
+    ngtcp2_connection_close_error ccerr;
   } rx;
 
   struct {
@@ -690,8 +700,7 @@ int ngtcp2_conn_init_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
  * NGTCP2_ERR_CALLBACK_FAILURE
  *     User-defined callback function failed.
  */
-int ngtcp2_conn_close_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
-                             uint64_t app_error_code);
+int ngtcp2_conn_close_stream(ngtcp2_conn *conn, ngtcp2_strm *strm);
 
 /*
  * ngtcp2_conn_close_stream closes stream |strm| if no further
@@ -707,8 +716,7 @@ int ngtcp2_conn_close_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
  * NGTCP2_ERR_CALLBACK_FAILURE
  *     User-defined callback function failed.
  */
-int ngtcp2_conn_close_stream_if_shut_rdwr(ngtcp2_conn *conn, ngtcp2_strm *strm,
-                                          uint64_t app_error_code);
+int ngtcp2_conn_close_stream_if_shut_rdwr(ngtcp2_conn *conn, ngtcp2_strm *strm);
 
 /*
  * ngtcp2_conn_update_rtt updates RTT measurements.  |rtt| is a latest
@@ -721,6 +729,8 @@ void ngtcp2_conn_update_rtt(ngtcp2_conn *conn, ngtcp2_duration rtt,
                             ngtcp2_duration ack_delay, ngtcp2_tstamp ts);
 
 void ngtcp2_conn_set_loss_detection_timer(ngtcp2_conn *conn, ngtcp2_tstamp ts);
+
+int ngtcp2_conn_on_loss_detection_timer(ngtcp2_conn *conn, ngtcp2_tstamp ts);
 
 /*
  * ngtcp2_conn_detect_lost_pkt detects lost packets.
@@ -764,9 +774,9 @@ int ngtcp2_conn_tx_strmq_push(ngtcp2_conn *conn, ngtcp2_strm *strm);
 ngtcp2_tstamp ngtcp2_conn_internal_expiry(ngtcp2_conn *conn);
 
 ngtcp2_ssize ngtcp2_conn_write_vmsg(ngtcp2_conn *conn, ngtcp2_path *path,
-                                    ngtcp2_pkt_info *pi, uint8_t *dest,
-                                    size_t destlen, ngtcp2_vmsg *vmsg,
-                                    ngtcp2_tstamp ts);
+                                    int pkt_info_version, ngtcp2_pkt_info *pi,
+                                    uint8_t *dest, size_t destlen,
+                                    ngtcp2_vmsg *vmsg, ngtcp2_tstamp ts);
 
 /*
  * ngtcp2_conn_write_single_frame_pkt writes a packet which contains |fr|

@@ -59,7 +59,9 @@ auto randgen = util::make_mt19937();
 Config config{};
 
 Stream::Stream(const Request &req, int64_t stream_id)
-    : req(req), stream_id(stream_id), fd(-1) {}
+    : req(req), stream_id(stream_id), fd(-1) {
+  nghttp3_buf_init(&reqbuf);
+}
 
 Stream::~Stream() {
   if (fd != -1) {
@@ -399,8 +401,9 @@ int Client::handshake_confirmed() {
 }
 
 namespace {
-int stream_close(ngtcp2_conn *conn, int64_t stream_id, uint64_t app_error_code,
-                 void *user_data, void *stream_user_data) {
+int stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
+                 uint64_t app_error_code, void *user_data,
+                 void *stream_user_data) {
   auto c = static_cast<Client *>(user_data);
 
   if (c->on_stream_close(stream_id, app_error_code) != 0) {
@@ -439,9 +442,8 @@ int get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
   }
 
   cid->datalen = cidlen;
-  auto md = util::crypto_md_sha256();
   if (ngtcp2_crypto_generate_stateless_reset_token(
-          token, &md, config.static_secret.data(), config.static_secret.size(),
+          token, config.static_secret.data(), config.static_secret.size(),
           cid) != 0) {
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
@@ -668,7 +670,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       path = std::string{config.qlog_dir};
       path += '/';
       path += util::format_hex(scid.data, scid.datalen);
-      path += ".qlog";
+      path += ".sqlog";
     }
     qlog_ = fopen(path.c_str(), "w");
     if (qlog_ == nullptr) {
@@ -684,6 +686,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   settings.initial_rtt = config.initial_rtt;
   settings.max_udp_payload_size = config.max_udp_payload_size;
   settings.no_udp_payload_size_shaping = 1;
+  settings.handshake_timeout = config.handshake_timeout;
 
   std::string token;
 
@@ -710,10 +713,17 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   params.max_idle_timeout = config.timeout;
   params.active_connection_id_limit = 7;
 
-  auto path =
-      ngtcp2_path{{ep.addr.len, const_cast<sockaddr *>(&ep.addr.su.sa)},
-                  {remote_addr.len, const_cast<sockaddr *>(&remote_addr.su.sa)},
-                  &ep};
+  auto path = ngtcp2_path{
+      {
+          const_cast<sockaddr *>(&ep.addr.su.sa),
+          ep.addr.len,
+      },
+      {
+          const_cast<sockaddr *>(&remote_addr.su.sa),
+          remote_addr.len,
+      },
+      &ep,
+  };
   auto rv =
       ngtcp2_conn_client_new(&conn_, &dcid, &scid, &path, version, &callbacks,
                              &settings, &params, nullptr, this);
@@ -757,9 +767,17 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
                       const ngtcp2_pkt_info *pi, uint8_t *data,
                       size_t datalen) {
-  auto path = ngtcp2_path{{ep.addr.len, const_cast<sockaddr *>(&ep.addr.su.sa)},
-                          {salen, const_cast<sockaddr *>(sa)},
-                          const_cast<Endpoint *>(&ep)};
+  auto path = ngtcp2_path{
+      {
+          const_cast<sockaddr *>(&ep.addr.su.sa),
+          ep.addr.len,
+      },
+      {
+          const_cast<sockaddr *>(sa),
+          salen,
+      },
+      const_cast<Endpoint *>(&ep),
+  };
   if (auto rv = ngtcp2_conn_read_pkt(conn_, &path, pi, data, datalen,
                                      util::timestamp(loop_));
       rv != 0) {
@@ -902,15 +920,18 @@ int Client::on_write() {
 
 int Client::write_streams() {
   ngtcp2_vec vec;
-  PathStorage path;
+  ngtcp2_path_storage ps;
   size_t pktcnt = 0;
   std::array<uint8_t, 64_k> buf;
   auto max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
   size_t max_pktcnt =
-      config.cc_algo == NGTCP2_CC_ALGO_BBR
+      (config.cc_algo == NGTCP2_CC_ALGO_BBR ||
+       config.cc_algo == NGTCP2_CC_ALGO_BBR2)
           ? ngtcp2_conn_get_send_quantum(conn_) / max_udp_payload_size
           : 10;
   auto ts = util::timestamp(loop_);
+
+  ngtcp2_path_storage_zero(&ps);
 
   for (;;) {
     int64_t stream_id = -1;
@@ -931,7 +952,7 @@ int Client::write_streams() {
     ngtcp2_ssize ndatalen;
     ngtcp2_pkt_info pi;
 
-    auto nwrite = ngtcp2_conn_writev_stream(conn_, &path.path, &pi, buf.data(),
+    auto nwrite = ngtcp2_conn_writev_stream(conn_, &ps.path, &pi, buf.data(),
                                             max_udp_payload_size, &ndatalen,
                                             flags, stream_id, &vec, vcnt, ts);
     if (nwrite < 0) {
@@ -972,8 +993,8 @@ int Client::write_streams() {
 
     reset_idle_timer();
 
-    if (auto rv = send_packet(*static_cast<Endpoint *>(path.path.user_data),
-                              path.path.remote, pi.ecn, buf.data(), nwrite);
+    if (auto rv = send_packet(*static_cast<Endpoint *>(ps.path.user_data),
+                              ps.path.remote, pi.ecn, buf.data(), nwrite);
         rv != NETWORK_ERR_OK) {
       if (rv != NETWORK_ERR_SEND_BLOCKED) {
         last_error_ = quic_err_transport(NGTCP2_ERR_INTERNAL);
@@ -1052,6 +1073,7 @@ int bind_addr(Address &local_addr, int fd, const in_addr_union *iau,
     return -1;
   }
   local_addr.len = len;
+  local_addr.ifindex = 0;
 
   return 0;
 }
@@ -1072,6 +1094,7 @@ int connect_sock(Address &local_addr, int fd, const Address &remote_addr) {
     return -1;
   }
   local_addr.len = len;
+  local_addr.ifindex = 0;
 
   return 0;
 }
@@ -1243,8 +1266,12 @@ int Client::change_local_addr() {
   } else {
     auto path = ngtcp2_path{
         addr,
-        {remote_addr_.len, const_cast<sockaddr *>(&remote_addr_.su.sa)},
-        &ep};
+        {
+            const_cast<sockaddr *>(&remote_addr_.su.sa),
+            remote_addr_.len,
+        },
+        &ep,
+    };
     if (auto rv = ngtcp2_conn_initiate_immediate_migration(
             conn_, &path, util::timestamp(loop_));
         rv != 0) {
@@ -1380,13 +1407,16 @@ int Client::handle_error() {
 
   std::array<uint8_t, NGTCP2_MAX_UDP_PAYLOAD_SIZE> buf;
 
-  PathStorage path;
+  ngtcp2_path_storage ps;
+
+  ngtcp2_path_storage_zero(&ps);
+
   ngtcp2_pkt_info pi;
   ngtcp2_ssize nwrite;
   if (last_error_.type == QUICErrorType::Transport) {
     nwrite = ngtcp2_conn_write_connection_close(
-        conn_, &path.path, &pi, buf.data(), buf.size(), last_error_.code,
-        util::timestamp(loop_));
+        conn_, &ps.path, &pi, buf.data(), buf.size(), last_error_.code, nullptr,
+        0, util::timestamp(loop_));
     if (nwrite < 0) {
       std::cerr << "ngtcp2_conn_write_connection_close: "
                 << ngtcp2_strerror(nwrite) << std::endl;
@@ -1394,8 +1424,8 @@ int Client::handle_error() {
     }
   } else {
     nwrite = ngtcp2_conn_write_application_close(
-        conn_, &path.path, &pi, buf.data(), buf.size(), last_error_.code,
-        util::timestamp(loop_));
+        conn_, &ps.path, &pi, buf.data(), buf.size(), last_error_.code, nullptr,
+        0, util::timestamp(loop_));
     if (nwrite < 0) {
       std::cerr << "ngtcp2_conn_write_application_close: "
                 << ngtcp2_strerror(nwrite) << std::endl;
@@ -1403,8 +1433,8 @@ int Client::handle_error() {
     }
   }
 
-  return send_packet(*static_cast<Endpoint *>(path.path.user_data),
-                     path.path.remote, pi.ecn, buf.data(), nwrite);
+  return send_packet(*static_cast<Endpoint *>(ps.path.user_data),
+                     ps.path.remote, pi.ecn, buf.data(), nwrite);
 }
 
 int Client::on_stream_close(int64_t stream_id, uint64_t app_error_code) {
@@ -1525,6 +1555,7 @@ int Client::acked_stream_data_offset(int64_t stream_id, uint64_t offset,
   auto it = streams_.find(stream_id);
   assert(it != std::end(streams_));
   auto &stream = (*it).second;
+  (void)stream;
   assert(static_cast<uint64_t>(stream->reqbuf.end - stream->reqbuf.begin) >=
          offset + datalen);
   return 0;
@@ -1541,7 +1572,7 @@ int Client::select_preferred_address(Address &selected_addr,
   switch (path->local.addr->sa_family) {
   case AF_INET:
     if (!paddr->ipv4_present) {
-      return 0;
+      return -1;
     }
     af = AF_INET;
     binaddr = paddr->ipv4_addr;
@@ -1549,11 +1580,12 @@ int Client::select_preferred_address(Address &selected_addr,
     break;
   case AF_INET6:
     if (!paddr->ipv6_present) {
-      return 0;
+      return -1;
     }
     af = AF_INET6;
     binaddr = paddr->ipv6_addr;
     port = paddr->ipv6_port;
+    break;
   default:
     return -1;
   }
@@ -1733,6 +1765,7 @@ void config_set_default(Config &config) {
   config.cc_algo = NGTCP2_CC_ALGO_CUBIC;
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.max_udp_payload_size = client_max_udp_payload_size;
+  config.handshake_timeout = NGTCP2_DEFAULT_HANDSHAKE_TIMEOUT;
 }
 } // namespace
 
@@ -1867,7 +1900,7 @@ Options:
               Exit when all HTTP streams are closed.
   --disable-early-data
               Disable early data.
-  --cc=(cubic|reno|bbr)
+  --cc=(cubic|reno|bbr|bbr2)
               The name of congestion controller algorithm.
               Default: )"
             << util::strccalgo(config.cc_algo) << R"(
@@ -1885,6 +1918,10 @@ Options:
               Override maximum UDP payload size that client transmits.
               Default: )"
             << config.max_udp_payload_size << R"(
+  --handshake-timeout=<DURATION>
+              Set the QUIC handshake timeout.
+              Default: )"
+            << util::format_duration(config.handshake_timeout) << R"(
   -h, --help  Display this help and exit.
 
 ---
@@ -1950,6 +1987,7 @@ int main(int argc, char **argv) {
         {"sni", required_argument, &flag, 30},
         {"initial-rtt", required_argument, &flag, 31},
         {"max-udp-payload-size", required_argument, &flag, 32},
+        {"handshake-timeout", required_argument, &flag, 36},
         {nullptr, 0, nullptr, 0},
     };
 
@@ -2188,7 +2226,11 @@ int main(int argc, char **argv) {
           config.cc_algo = NGTCP2_CC_ALGO_BBR;
           break;
         }
-        std::cerr << "cc: specify cubic, reno, or bbr" << std::endl;
+        if (strcmp("bbr2", optarg) == 0) {
+          config.cc_algo = NGTCP2_CC_ALGO_BBR2;
+          break;
+        }
+        std::cerr << "cc: specify cubic, reno, bbr, or bbr2" << std::endl;
         exit(EXIT_FAILURE);
       case 28:
         // --exit-on-all-streams-close
@@ -2224,6 +2266,15 @@ int main(int argc, char **argv) {
           std::cerr << "max-udp-payload-size: must not be 0" << std::endl;
         } else {
           config.max_udp_payload_size = *n;
+        }
+        break;
+      case 36:
+        // --handshake-timeout
+        if (auto t = util::parse_duration(optarg); !t) {
+          std::cerr << "handshake-timeout: invalid argument" << std::endl;
+          exit(EXIT_FAILURE);
+        } else {
+          config.handshake_timeout = *t;
         }
         break;
       }

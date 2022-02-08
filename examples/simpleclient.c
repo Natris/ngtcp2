@@ -41,6 +41,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
+#include <openssl/err.h>
 
 #include <ev.h>
 
@@ -59,7 +60,7 @@
  * and undefine MESSAGE macro.
  */
 
-static uint64_t timestamp() {
+static uint64_t timestamp(void) {
   struct timespec tp;
 
   if (clock_gettime(CLOCK_MONOTONIC, &tp) != 0) {
@@ -226,12 +227,21 @@ static int numeric_host(const char *hostname) {
 
 static int client_ssl_init(struct client *c) {
   c->ssl_ctx = SSL_CTX_new(TLS_client_method());
+  if (!c->ssl_ctx) {
+    fprintf(stderr, "SSL_CTX_new: %s\n",
+                    ERR_error_string(ERR_get_error(), NULL));
+    return -1;
+  }
 
   SSL_CTX_set_min_proto_version(c->ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(c->ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_quic_method(c->ssl_ctx, &quic_method);
 
   c->ssl = SSL_new(c->ssl_ctx);
+  if (!c->ssl) {
+    fprintf(stderr, "SSL_new: %s\n", ERR_error_string(ERR_get_error(), NULL));
+    return -1;
+  }
 
   SSL_set_app_data(c->ssl, c);
   SSL_set_connect_state(c->ssl);
@@ -322,12 +332,12 @@ static int client_quic_init(struct client *c,
                             size_t local_addrlen) {
   ngtcp2_path path = {
       {
-          local_addrlen,
           (struct sockaddr *)local_addr,
+          local_addrlen,
       },
       {
-          remote_addrlen,
           (struct sockaddr *)remote_addr,
+          remote_addrlen,
       },
       NULL,
   };
@@ -623,8 +633,9 @@ static void client_close(struct client *c) {
 
   ngtcp2_path_storage_zero(&ps);
 
-  nwrite = ngtcp2_conn_write_connection_close(
-      c->conn, &ps.path, &pi, buf, sizeof(buf), c->last_error, timestamp());
+  nwrite = ngtcp2_conn_write_connection_close(c->conn, &ps.path, &pi, buf,
+                                              sizeof(buf), c->last_error, NULL,
+                                              0, timestamp());
   if (nwrite < 0) {
     fprintf(stderr, "ngtcp2_conn_write_connection_close: %s\n",
             ngtcp2_strerror((int)nwrite));
@@ -728,7 +739,7 @@ static void client_free(struct client *c) {
   SSL_CTX_free(c->ssl_ctx);
 }
 
-int main() {
+int main(void) {
   struct client c;
 
   srandom((unsigned int)timestamp());

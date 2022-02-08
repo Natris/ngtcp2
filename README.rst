@@ -11,6 +11,21 @@ Documentation
 
 `Online documentation <https://nghttp2.org/ngtcp2/>`_ is available.
 
+Public test server
+------------------
+
+The following endpoints are available to try out ngtcp2
+implementation:
+
+- https://nghttp2.org:4433
+- https://nghttp2.org:4434 (requires address validation token)
+- https://nghttp2.org (powered by `nghttpx
+  <https://nghttp2.org/documentation/nghttpx.1.html>`_)
+
+  This endpoints sends Alt-Svc header field to clients if it is
+  accessed via HTTP/1.1 or HTTP/2 to tell them that HTTP/3 is
+  available at UDP 443.
+
 Requirements
 ------------
 
@@ -41,16 +56,16 @@ ngtcp2 crypto helper library, and client and server under examples
 directory require at least one of the following TLS backends:
 
 - `OpenSSL with QUIC support
-  <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1l+quic>`_
+  <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1m+quic>`_
 - GnuTLS >= 3.7.2
-- BoringSSL (commit 7ada8466927864b6427277f455483c61081a32db)
+- BoringSSL (commit f6ef1c560ae5af51e2df5d8d2175bed207b28b8f)
 
 Build from git
 --------------
 
 .. code-block:: text
 
-   $ git clone --depth 1 -b OpenSSL_1_1_1l+quic https://github.com/quictls/openssl
+   $ git clone --depth 1 -b OpenSSL_1_1_1m+quic https://github.com/quictls/openssl
    $ cd openssl
    $ # For Linux
    $ ./config enable-tls1_3 --prefix=$PWD/build
@@ -70,6 +85,8 @@ Build from git
    $ # For Mac users who have installed libev with MacPorts, append
    $ # ',-L/opt/local/lib' to LDFLAGS, and also pass
    $ # CPPFLAGS="-I/opt/local/include" to ./configure.
+   $ # For OpenSSL >= v3.0.0, replace "openssl/build/lib" with
+   $ # "openssl/build/lib64".
    $ ./configure PKG_CONFIG_PATH=$PWD/../openssl/build/lib/pkgconfig:$PWD/../nghttp3/build/lib/pkgconfig LDFLAGS="-Wl,-rpath,$PWD/../openssl/build/lib"
    $ make -j$(nproc) check
 
@@ -177,6 +194,8 @@ The library implements the following QUIC protocol extensions:
 
 - `An Unreliable Datagram Extension to QUIC
   <https://quicwg.org/datagram/draft-ietf-quic-datagram.html>`_
+- `Greasing the QUIC Bit
+  <https://datatracker.ietf.org/doc/html/draft-ietf-quic-bit-grease>`_
 
 Configuring Wireshark for QUIC
 ------------------------------

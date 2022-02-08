@@ -71,7 +71,7 @@ struct Stream {
   int send_redirect_response(nghttp3_conn *conn, unsigned int status_code,
                              const std::string_view &path);
   int64_t find_dyn_length(const std::string_view &path);
-  void http_acked_stream_data(size_t datalen);
+  void http_acked_stream_data(uint64_t datalen);
 
   int64_t stream_id;
   Handler *handler;
@@ -160,9 +160,9 @@ public:
   int on_stream_stop_sending(int64_t stream_id);
   int extend_max_stream_data(int64_t stream_id, uint64_t max_data);
   void shutdown_read(int64_t stream_id, int app_error_code);
-  void http_acked_stream_data(Stream *stream, size_t datalen);
+  void http_acked_stream_data(Stream *stream, uint64_t datalen);
   void http_stream_close(int64_t stream_id, uint64_t app_error_code);
-  int http_send_stop_sending(int64_t stream_id, uint64_t app_error_code);
+  int http_stop_sending(int64_t stream_id, uint64_t app_error_code);
   int http_reset_stream(int64_t stream_id, uint64_t app_error_code);
 
   void reset_idle_timer();
@@ -211,12 +211,8 @@ public:
   int send_stateless_connection_close(const ngtcp2_pkt_hd *chd, Endpoint &ep,
                                       const Address &local_addr,
                                       const sockaddr *sa, socklen_t salen);
-  int generate_retry_token(uint8_t *token, size_t &tokenlen, const sockaddr *sa,
-                           socklen_t salen, const ngtcp2_cid *scid,
-                           const ngtcp2_cid *ocid);
   int verify_retry_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
                          const sockaddr *sa, socklen_t salen);
-  int generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *sa);
   int verify_token(const ngtcp2_pkt_hd *hd, const sockaddr *sa,
                    socklen_t salen);
   int send_packet(Endpoint &ep, const ngtcp2_addr &local_addr,
@@ -224,8 +220,6 @@ public:
                   const uint8_t *data, size_t datalen, size_t gso_size);
   void remove(const Handler *h);
 
-  int derive_token_key(uint8_t *key, size_t &keylen, uint8_t *iv, size_t &ivlen,
-                       const uint8_t *rand_data, size_t rand_datalen);
   void associate_cid(const ngtcp2_cid *cid, Handler *h);
   void dissociate_cid(const ngtcp2_cid *cid);
 
@@ -234,8 +228,6 @@ private:
   struct ev_loop *loop_;
   std::vector<Endpoint> endpoints_;
   const TLSServerContext &tls_ctx_;
-  ngtcp2_crypto_aead token_aead_;
-  ngtcp2_crypto_md token_md_;
   ev_signal sigintev_;
 };
 

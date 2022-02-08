@@ -1,6 +1,6 @@
 name: build
 
-on: push
+on: [push, pull_request]
 
 jobs:
   build:
@@ -10,7 +10,15 @@ jobs:
       matrix:
         os: [ubuntu-20.04, macos-10.15]
         compiler: [gcc, clang]
-        buildtool: [autotools, cmake]
+        buildtool: [autotools, distcheck, cmake]
+        openssl: [openssl1, openssl3]
+        exclude:
+        - os: macos-10.15
+          buildtool: distcheck
+        - compiler: gcc
+          buildtool: distcheck
+        - openssl: openssl3
+          buildtool: distcheck
 
     steps:
     - uses: actions/checkout@v2
@@ -49,9 +57,14 @@ jobs:
       run: |
         echo 'CC=gcc-10' >> $GITHUB_ENV
         echo 'CXX=g++-10' >> $GITHUB_ENV
-    - name: Build OpenSSL
+    - name: Build OpenSSL v1.1.1
+      if: matrix.openssl == 'openssl1'
       run: |
-        ./ci/build_openssl.sh
+        ./ci/build_openssl1.sh
+    - name: Build OpenSSL v3.0.x
+      if: matrix.openssl == 'openssl3'
+      run: |
+        ./ci/build_openssl3.sh
     - name: Build GnuTLS
       run: |
         ./ci/build_gnutls.sh
@@ -63,8 +76,8 @@ jobs:
         ./ci/build_nghttp3.sh
     - name: Setup environment variables
       run: |
-        PKG_CONFIG_PATH="$PWD/openssl/build/lib/pkgconfig:$PWD/nghttp3/build/lib/pkgconfig:$PWD/gnutls-3.7.2/build/lib/pkgconfig:$PWD/nettle-3.6/build/lib64/pkgconfig"
-        LDFLAGS="$EXTRA_LDFLAGS -Wl,-rpath,$PWD/openssl/build/lib -Wl,-rpath,$PWD/nettle-3.6/build/lib64"
+        PKG_CONFIG_PATH="$PWD/openssl/build/lib/pkgconfig:$PWD/openssl/build/lib64/pkgconfig:$PWD/nghttp3/build/lib/pkgconfig:$PWD/gnutls-3.7.2/build/lib/pkgconfig:$PWD/nettle-3.6/build/lib64/pkgconfig"
+        LDFLAGS="$EXTRA_LDFLAGS -Wl,-rpath,$PWD/openssl/build/lib -Wl,-rpath,$PWD/openssl/build/lib64 -Wl,-rpath,$PWD/nettle-3.6/build/lib64"
         BORINGSSL_CFLAGS="-I$PWD/boringssl/include/"
         BORINGSSL_LIBS="-L$PWD/boringssl/build/ssl -lssl -L$PWD/boringssl/build/crypto -lcrypto"
 
@@ -96,6 +109,10 @@ jobs:
         autoreconf -i && \
         ./configure --enable-werror \
           --with-openssl --with-gnutls --with-boringssl
+    - name: Configure autotools for distcheck
+      if: matrix.buildtool == 'distcheck'
+      run: |
+        autoreconf -i && ./configure
     - name: Configure cmake
       if: matrix.buildtool == 'cmake'
       run: |
@@ -103,10 +120,17 @@ jobs:
           -DBORINGSSL_LIBRARIES="$BORINGSSL_LIBS" \
           -DBORINGSSL_INCLUDE_DIR="$PWD/boringssl/include/" .
     - name: Build ngtcp2
+      if: matrix.buildtool != 'distcheck'
       run: |
         make
         make check
+    - name: Build ngtcp2 with distcheck
+      if: matrix.buildtool == 'distcheck'
+      run: |
+        make distcheck \
+          DISTCHECK_CONFIGURE_FLAGS="--enable-werror --with-openssl --with-gnutls --with-boringssl"
     - name: Integration test
+      if: matrix.buildtool != 'distcheck'
       run: |
         ./ci/gen-certificate.sh
         NETTLE_PATH=$PWD/nettle-3.6/build/lib64

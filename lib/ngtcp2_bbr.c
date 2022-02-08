@@ -119,7 +119,7 @@ int ngtcp2_cc_bbr_cc_init(ngtcp2_cc *cc, ngtcp2_log *log,
   ngtcp2_bbr_cc *bbr_cc;
 
   bbr_cc = ngtcp2_mem_calloc(mem, 1, sizeof(ngtcp2_bbr_cc));
-  if (cc == NULL) {
+  if (bbr_cc == NULL) {
     return NGTCP2_ERR_NOMEM;
   }
 
@@ -297,6 +297,7 @@ static void bbr_handle_recovery(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
 
     if (!in_congestion_recovery(cstat, ack->largest_acked_sent_ts)) {
       cc->in_loss_recovery = 0;
+      cc->packet_conservation = 0;
       bbr_restore_cwnd(cc, cstat);
     }
 
@@ -304,13 +305,13 @@ static void bbr_handle_recovery(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
   }
 
   if (cc->congestion_recovery_start_ts != UINT64_MAX) {
+    cc->in_loss_recovery = 1;
     bbr_save_cwnd(cc, cstat);
     cstat->cwnd = cstat->bytes_in_flight +
                   ngtcp2_max(ack->bytes_delivered, cstat->max_udp_payload_size);
 
     cstat->congestion_recovery_start_ts = cc->congestion_recovery_start_ts;
     cc->congestion_recovery_start_ts = UINT64_MAX;
-    cc->in_loss_recovery = 1;
     cc->packet_conservation = 1;
   }
 }
@@ -367,23 +368,23 @@ static void bbr_set_pacing_rate(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat) {
 }
 
 static void bbr_set_send_quantum(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat) {
+  uint64_t send_quantum;
   (void)cc;
 
   if (cstat->pacing_rate < 1.2 * 1024 * 1024 / 8 / NGTCP2_SECONDS) {
     cstat->send_quantum = cstat->max_udp_payload_size;
-    return;
-  }
-
-  if (cstat->pacing_rate < 24.0 * 1024 * 1024 / 8 / NGTCP2_SECONDS) {
+  } else if (cstat->pacing_rate < 24.0 * 1024 * 1024 / 8 / NGTCP2_SECONDS) {
     cstat->send_quantum = cstat->max_udp_payload_size * 2;
-    return;
+  } else {
+    send_quantum =
+        (uint64_t)(cstat->pacing_rate * (double)(cstat->min_rtt == UINT64_MAX
+                                                     ? NGTCP2_MILLISECONDS
+                                                     : cstat->min_rtt));
+    cstat->send_quantum = (size_t)ngtcp2_min(send_quantum, 64 * 1024);
   }
 
   cstat->send_quantum =
-      (uint64_t)(cstat->pacing_rate * (double)(cstat->min_rtt == UINT64_MAX
-                                                   ? NGTCP2_MILLISECONDS
-                                                   : cstat->min_rtt));
-  cstat->send_quantum = ngtcp2_min(cstat->send_quantum, 64 * 1024);
+      ngtcp2_max(cstat->send_quantum, cstat->max_udp_payload_size * 10);
 }
 
 static uint64_t bbr_inflight(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
@@ -488,6 +489,8 @@ static void bbr_init(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
   cc->congestion_recovery_start_ts = UINT64_MAX;
   cc->in_loss_recovery = 0;
 
+  cstat->send_quantum = cstat->max_udp_payload_size * 10;
+
   ngtcp2_window_filter_init(&cc->btl_bw_filter, NGTCP2_BBR_BTL_BW_FILTERLEN);
 
   bbr_init_round_counting(cc);
@@ -582,7 +585,7 @@ static void bbr_check_cycle_phase(ngtcp2_bbr_cc *cc, ngtcp2_conn_stat *cstat,
 
 static void bbr_advance_cycle_phase(ngtcp2_bbr_cc *cc, ngtcp2_tstamp ts) {
   cc->cycle_stamp = ts;
-  cc->cycle_index = (cc->cycle_index + 1) % NGTCP2_BBR_GAIN_CYCLELEN;
+  cc->cycle_index = (cc->cycle_index + 1) & (NGTCP2_BBR_GAIN_CYCLELEN - 1);
   cc->pacing_gain = pacing_gain_cycle[cc->cycle_index];
 }
 

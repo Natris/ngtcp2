@@ -150,14 +150,14 @@ static uint8_t *write_cid_param(uint8_t *p, ngtcp2_transport_param_id id,
 
 static const uint8_t empty_address[16];
 
-ngtcp2_ssize
-ngtcp2_encode_transport_params(uint8_t *dest, size_t destlen,
-                               ngtcp2_transport_params_type exttype,
-                               const ngtcp2_transport_params *params) {
+ngtcp2_ssize ngtcp2_encode_transport_params_versioned(
+    uint8_t *dest, size_t destlen, ngtcp2_transport_params_type exttype,
+    int transport_params_version, const ngtcp2_transport_params *params) {
   uint8_t *p;
   size_t len = 0;
   /* For some reason, gcc 7.3.0 requires this initialization. */
   size_t preferred_addrlen = 0;
+  (void)transport_params_version;
 
   switch (exttype) {
   case NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO:
@@ -253,6 +253,10 @@ ngtcp2_encode_transport_params(uint8_t *dest, size_t destlen,
   if (params->max_datagram_frame_size) {
     len += varint_paramlen(NGTCP2_TRANSPORT_PARAM_MAX_DATAGRAM_FRAME_SIZE,
                            params->max_datagram_frame_size);
+  }
+  if (params->grease_quic_bit) {
+    len += ngtcp2_put_varint_len(NGTCP2_TRANSPORT_PARAM_GREASE_QUIC_BIT) +
+           ngtcp2_put_varint_len(0);
   }
 
   if (destlen < len) {
@@ -385,6 +389,11 @@ ngtcp2_encode_transport_params(uint8_t *dest, size_t destlen,
                            params->max_datagram_frame_size);
   }
 
+  if (params->grease_quic_bit) {
+    p = ngtcp2_put_varint(p, NGTCP2_TRANSPORT_PARAM_GREASE_QUIC_BIT);
+    p = ngtcp2_put_varint(p, 0);
+  }
+
   assert((size_t)(p - dest) == len);
 
   return (ngtcp2_ssize)len;
@@ -485,9 +494,9 @@ static ngtcp2_ssize decode_cid_param(ngtcp2_cid *pdest, const uint8_t *p,
   return (ngtcp2_ssize)(p - begin);
 }
 
-int ngtcp2_decode_transport_params(ngtcp2_transport_params *params,
-                                   ngtcp2_transport_params_type exttype,
-                                   const uint8_t *data, size_t datalen) {
+int ngtcp2_decode_transport_params_versioned(
+    int transport_params_version, ngtcp2_transport_params *params,
+    ngtcp2_transport_params_type exttype, const uint8_t *data, size_t datalen) {
   const uint8_t *p, *end;
   size_t len;
   uint64_t param_type;
@@ -495,6 +504,7 @@ int ngtcp2_decode_transport_params(ngtcp2_transport_params *params,
   ngtcp2_ssize nread;
   int initial_scid_present = 0;
   int original_dcid_present = 0;
+  (void)transport_params_version;
 
   if (datalen == 0) {
     return NGTCP2_ERR_REQUIRED_TRANSPORT_PARAM;
@@ -749,6 +759,14 @@ int ngtcp2_decode_transport_params(ngtcp2_transport_params *params,
         return NGTCP2_ERR_MALFORMED_TRANSPORT_PARAM;
       }
       p += nread;
+      break;
+    case NGTCP2_TRANSPORT_PARAM_GREASE_QUIC_BIT:
+      nread = decode_varint(&valuelen, p, end);
+      if (nread < 0 || valuelen != 0) {
+        return NGTCP2_ERR_MALFORMED_TRANSPORT_PARAM;
+      }
+      p += nread;
+      params->grease_quic_bit = 1;
       break;
     default:
       /* Ignore unknown parameter */

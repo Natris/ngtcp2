@@ -63,6 +63,15 @@ static ngtcp2_crypto_boringssl_cipher crypto_cipher_chacha20 = {
     NGTCP2_CRYPTO_BORINGSSL_CIPHER_TYPE_CHACHA20,
 };
 
+ngtcp2_crypto_aead *ngtcp2_crypto_aead_aes_128_gcm(ngtcp2_crypto_aead *aead) {
+  return ngtcp2_crypto_aead_init(aead, (void *)EVP_aead_aes_128_gcm());
+}
+
+ngtcp2_crypto_md *ngtcp2_crypto_md_sha256(ngtcp2_crypto_md *md) {
+  md->native_handle = (void *)EVP_sha256();
+  return md;
+}
+
 ngtcp2_crypto_ctx *ngtcp2_crypto_ctx_initial(ngtcp2_crypto_ctx *ctx) {
   ngtcp2_crypto_aead_init(&ctx->aead, (void *)EVP_aead_aes_128_gcm());
   ctx->md.native_handle = (void *)EVP_sha256();
@@ -235,6 +244,7 @@ int ngtcp2_crypto_cipher_ctx_encrypt_init(ngtcp2_crypto_cipher_ctx *cipher_ctx,
   ngtcp2_crypto_boringssl_cipher *hp_cipher = cipher->native_handle;
   ngtcp2_crypto_boringssl_cipher_ctx *ctx;
   int rv;
+  (void)rv;
 
   ctx = malloc(sizeof(*ctx));
   if (ctx == NULL) {
@@ -258,6 +268,7 @@ int ngtcp2_crypto_cipher_ctx_encrypt_init(ngtcp2_crypto_cipher_ctx *cipher_ctx,
     return 0;
   default:
     assert(0);
+    abort();
   };
 }
 
@@ -296,18 +307,32 @@ int ngtcp2_crypto_hkdf_expand(uint8_t *dest, size_t destlen,
   return 0;
 }
 
+int ngtcp2_crypto_hkdf(uint8_t *dest, size_t destlen,
+                       const ngtcp2_crypto_md *md, const uint8_t *secret,
+                       size_t secretlen, const uint8_t *salt, size_t saltlen,
+                       const uint8_t *info, size_t infolen) {
+  const EVP_MD *prf = md->native_handle;
+
+  if (HKDF(dest, destlen, prf, secret, secretlen, salt, saltlen, info,
+           infolen) != 1) {
+    return -1;
+  }
+
+  return 0;
+}
+
 int ngtcp2_crypto_encrypt(uint8_t *dest, const ngtcp2_crypto_aead *aead,
                           const ngtcp2_crypto_aead_ctx *aead_ctx,
                           const uint8_t *plaintext, size_t plaintextlen,
                           const uint8_t *nonce, size_t noncelen,
-                          const uint8_t *ad, size_t adlen) {
+                          const uint8_t *aad, size_t aadlen) {
   const EVP_AEAD *cipher = aead->native_handle;
   EVP_AEAD_CTX *actx = aead_ctx->native_handle;
   size_t max_outlen = plaintextlen + EVP_AEAD_max_overhead(cipher);
   size_t outlen;
 
   if (EVP_AEAD_CTX_seal(actx, dest, &outlen, max_outlen, nonce, noncelen,
-                        plaintext, plaintextlen, ad, adlen) != 1) {
+                        plaintext, plaintextlen, aad, aadlen) != 1) {
     return -1;
   }
 
@@ -318,7 +343,7 @@ int ngtcp2_crypto_decrypt(uint8_t *dest, const ngtcp2_crypto_aead *aead,
                           const ngtcp2_crypto_aead_ctx *aead_ctx,
                           const uint8_t *ciphertext, size_t ciphertextlen,
                           const uint8_t *nonce, size_t noncelen,
-                          const uint8_t *ad, size_t adlen) {
+                          const uint8_t *aad, size_t aadlen) {
   EVP_AEAD_CTX *actx = aead_ctx->native_handle;
   size_t max_outlen = ciphertextlen;
   size_t outlen;
@@ -326,7 +351,7 @@ int ngtcp2_crypto_decrypt(uint8_t *dest, const ngtcp2_crypto_aead *aead,
   (void)aead;
 
   if (EVP_AEAD_CTX_open(actx, dest, &outlen, max_outlen, nonce, noncelen,
-                        ciphertext, ciphertextlen, ad, adlen) != 1) {
+                        ciphertext, ciphertextlen, aad, aadlen) != 1) {
     return -1;
   }
 
@@ -478,6 +503,7 @@ ngtcp2_crypto_level ngtcp2_crypto_boringssl_from_ssl_encryption_level(
     return NGTCP2_CRYPTO_LEVEL_APPLICATION;
   default:
     assert(0);
+    abort();
   }
 }
 
@@ -494,6 +520,7 @@ enum ssl_encryption_level_t ngtcp2_crypto_boringssl_from_ngtcp2_crypto_level(
     return ssl_encryption_early_data;
   default:
     assert(0);
+    abort();
   }
 }
 
@@ -504,6 +531,14 @@ int ngtcp2_crypto_get_path_challenge_data_cb(ngtcp2_conn *conn, uint8_t *data,
 
   if (RAND_bytes(data, NGTCP2_PATH_CHALLENGE_DATALEN) != 1) {
     return NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+
+  return 0;
+}
+
+int ngtcp2_crypto_random(uint8_t *data, size_t datalen) {
+  if (RAND_bytes(data, datalen) != 1) {
+    return -1;
   }
 
   return 0;

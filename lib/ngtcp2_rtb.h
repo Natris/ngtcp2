@@ -41,6 +41,7 @@ typedef struct ngtcp2_log ngtcp2_log;
 typedef struct ngtcp2_qlog ngtcp2_qlog;
 typedef struct ngtcp2_strm ngtcp2_strm;
 typedef struct ngtcp2_rst ngtcp2_rst;
+typedef struct ngtcp2_cc ngtcp2_cc;
 
 /* NGTCP2_FRAME_CHAIN_BINDER_FLAG_NONE indicates that no flag is
    set. */
@@ -217,6 +218,8 @@ struct ngtcp2_rtb_entry {
     uint64_t delivered;
     ngtcp2_tstamp delivered_ts;
     ngtcp2_tstamp first_sent_ts;
+    uint64_t tx_in_flight;
+    uint64_t lost;
     int is_app_limited;
   } rst;
   /* flags is bitwise-OR of zero or more of

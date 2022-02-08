@@ -29,7 +29,7 @@ if [ "$ROLE" == "client" ]; then
     else
 	CLIENT_BIN="/usr/local/bin/h09client"
     fi
-    CLIENT_ARGS="$SERVER 443 --download /downloads -s --no-quic-dump --no-http-dump --exit-on-all-streams-close --qlog-dir $QLOGDIR --cc bbr"
+    CLIENT_ARGS="$SERVER 443 --download /downloads -s --no-quic-dump --no-http-dump --exit-on-all-streams-close --qlog-dir $QLOGDIR --cc bbr2"
     if [ "$TESTCASE" == "versionnegotiation" ]; then
         CLIENT_ARGS="$CLIENT_ARGS -v 0xaaaaaaaa"
     else
@@ -51,7 +51,7 @@ if [ "$ROLE" == "client" ]; then
 	REQUESTS=${REQS[@]:1}
 	$CLIENT_BIN $CLIENT_ARGS $REQUESTS $CLIENT_PARAMS &>> $LOG
     elif [ "$TESTCASE" == "multiconnect" ]; then
-	CLIENT_ARGS="$CLIENT_ARGS --timeout=180s"
+	CLIENT_ARGS="$CLIENT_ARGS --timeout=180s --handshake-timeout=180s"
 	for REQ in $REQUESTS; do
 	    echo "multiconnect REQ: $REQ" >> $LOG
 	    $CLIENT_BIN $CLIENT_ARGS $REQ $CLIENT_PARAMS &>> $LOG
@@ -65,11 +65,11 @@ elif [ "$ROLE" == "server" ]; then
     else
 	SERVER_BIN="/usr/local/bin/h09server"
     fi
-    SERVER_ARGS="/certs/priv.key /certs/cert.pem -s -d /www --qlog-dir $QLOGDIR --cc bbr"
+    SERVER_ARGS="/certs/priv.key /certs/cert.pem -s -d /www --qlog-dir $QLOGDIR --cc bbr2"
     if [ "$TESTCASE" == "retry" ]; then
 	SERVER_ARGS="$SERVER_ARGS -V"
     elif [ "$TESTCASE" == "multiconnect" ]; then
-	SERVER_ARGS="$SERVER_ARGS --timeout=180s"
+	SERVER_ARGS="$SERVER_ARGS --timeout=180s --handshake-timeout=180s"
     fi
 
     $SERVER_BIN '*' 443 $SERVER_ARGS $SERVER_PARAMS &> $LOG

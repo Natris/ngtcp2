@@ -53,7 +53,7 @@ static int init_suite1(void) { return 0; }
 
 static int clean_suite1(void) { return 0; }
 
-int main() {
+int main(void) {
   CU_pSuite pSuite = NULL;
   unsigned int num_tests_failed;
 
@@ -287,6 +287,13 @@ int main() {
       !CU_add_test(pSuite, "conn_retire_stale_bound_dcid",
                    test_ngtcp2_conn_retire_stale_bound_dcid) ||
       !CU_add_test(pSuite, "conn_get_scid", test_ngtcp2_conn_get_scid) ||
+      !CU_add_test(pSuite, "conn_stream_close",
+                   test_ngtcp2_conn_stream_close) ||
+      !CU_add_test(pSuite, "conn_buffer_pkt", test_ngtcp2_conn_buffer_pkt) ||
+      !CU_add_test(pSuite, "conn_handshake_timeout",
+                   test_ngtcp2_conn_handshake_timeout) ||
+      !CU_add_test(pSuite, "conn_get_connection_close_error",
+                   test_ngtcp2_conn_get_connection_close_error) ||
       !CU_add_test(pSuite, "accept", test_ngtcp2_accept) ||
       !CU_add_test(pSuite, "pkt_write_connection_close",
                    test_ngtcp2_pkt_write_connection_close) ||
@@ -300,6 +307,7 @@ int main() {
                    test_ngtcp2_gaptr_drop_first_gap) ||
       !CU_add_test(pSuite, "vec_split", test_ngtcp2_vec_split) ||
       !CU_add_test(pSuite, "vec_merge", test_ngtcp2_vec_merge) ||
+      !CU_add_test(pSuite, "vec_len_varint", test_ngtcp2_vec_len_varint) ||
       !CU_add_test(pSuite, "strm_streamfrq_pop",
                    test_ngtcp2_strm_streamfrq_pop) ||
       !CU_add_test(pSuite, "strm_streamfrq_unacked_offset",

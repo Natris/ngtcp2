@@ -269,8 +269,11 @@ std::string_view strccalgo(ngtcp2_cc_algo cc_algo) {
     return "cubic";
   case NGTCP2_CC_ALGO_BBR:
     return "bbr";
+  case NGTCP2_CC_ALGO_BBR2:
+    return "bbr2";
   default:
     assert(0);
+    abort();
   }
 }
 

@@ -31,6 +31,7 @@
 
 #include <ngtcp2/ngtcp2.h>
 
+#include "ngtcp2_cc.h"
 #include "ngtcp2_window_filter.h"
 
 typedef struct ngtcp2_rst ngtcp2_rst;
@@ -151,4 +152,4 @@ void ngtcp2_cc_bbr_cc_reset(ngtcp2_cc *cc, ngtcp2_conn_stat *cstat,
 void ngtcp2_cc_bbr_cc_event(ngtcp2_cc *cc, ngtcp2_conn_stat *cstat,
                             ngtcp2_cc_event_type event, ngtcp2_tstamp ts);
 
-#endif /* NGTCP2_CC_H */
+#endif /* NGTCP2_BBR_H */

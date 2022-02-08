@@ -28,19 +28,38 @@ cmake_minimum_required(VERSION 3.1)
 cmake_policy(SET CMP0063 NEW)
 
 # XXX using 0.1.90 instead of 0.1.0-DEV
-project(ngtcp2 VERSION 0.1.90)
+project(ngtcp2 VERSION 0.1.0)
 
 # See versioning rule:
-#  http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+#  https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
 set(LT_CURRENT  0)
 set(LT_REVISION 0)
 set(LT_AGE      0)
+
+set(CRYPTO_OPENSSL_LT_CURRENT 0)
+set(CRYPTO_OPENSSL_LT_REVISION 0)
+set(CRYPTO_OPENSSL_LT_AGE 0)
+
+set(CRYPTO_GNUTLS_LT_CURRENT 0)
+set(CRYPTO_GNUTLS_LT_REVISION 0)
+set(CRYPTO_GNUTLS_LT_AGE 0)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_MODULE_PATH}")
 include(Version)
 
 math(EXPR LT_SOVERSION "${LT_CURRENT} - ${LT_AGE}")
 set(LT_VERSION "${LT_SOVERSION}.${LT_AGE}.${LT_REVISION}")
+
+math(EXPR CRYPTO_OPENSSL_LT_SOVERSION
+  "${CRYPTO_OPENSSL_LT_CURRENT} - ${CRYPTO_OPENSSL_LT_AGE}")
+set(CRYPTO_OPENSSL_LT_VERSION
+  "${CRYPTO_OPENSSL_LT_SOVERSION}.${CRYPTO_OPENSSL_LT_AGE}.${CRYPTO_OPENSSL_LT_REVISION}")
+
+math(EXPR CRYPTO_GNUTLS_LT_SOVERSION
+  "${CRYPTO_GNUTLS_LT_CURRENT} - ${CRYPTO_GNUTLS_LT_AGE}")
+set(CRYPTO_GNUTLS_LT_VERSION
+  "${CRYPTO_GNUTLS_LT_SOVERSION}.${CRYPTO_GNUTLS_LT_AGE}.${CRYPTO_GNUTLS_LT_REVISION}")
+
 set(PACKAGE_VERSION     "${PROJECT_VERSION}")
 HexVersion(PACKAGE_VERSION_NUM ${PROJECT_VERSION_MAJOR} ${PROJECT_VERSION_MINOR} ${PROJECT_VERSION_PATCH})
 
@@ -336,7 +355,8 @@ message(STATUS "summary of build options:
       WARNCFLAGS:     ${WARNCFLAGS}
       WARNCXXFLAGS:   ${WARNCXXFLAGS}
     Library:
-      Shared:         ${BUILD_SHARED_LIBS}
+      Shared:         ${ENABLE_SHARED_LIB}
+      Static:         ${ENABLE_STATIC_LIB}
     Test:
       CUnit:          ${HAVE_CUNIT} (LIBS='${CUNIT_LIBRARIES}')
     Libs:

@@ -1,11 +1,11 @@
-FROM debian:10 as build
+FROM debian:11 as build
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git g++ make binutils autoconf automake autotools-dev libtool \
         pkg-config libev-dev libjemalloc-dev \
         ca-certificates mime-support && \
-    git clone --depth 1 -b OpenSSL_1_1_1l+quic https://github.com/quictls/openssl && \
+    git clone --depth 1 -b OpenSSL_1_1_1m+quic https://github.com/quictls/openssl && \
     cd openssl && ./config enable-tls1_3 --openssldir=/etc/ssl && make -j$(nproc) && make install_sw && cd .. && rm -rf openssl && \
     git clone --depth 1 https://github.com/ngtcp2/nghttp3 && \
     cd nghttp3 && autoreconf -i && \
@@ -15,10 +15,9 @@ RUN apt-get update && \
     cd ngtcp2 && autoreconf -i && \
     ./configure \
         LIBTOOL_LDFLAGS="-static-libtool-libs" \
-        LIBS="-ldl -pthread" \
-        OPENSSL_LIBS="-l:libssl.a -l:libcrypto.a" \
+        OPENSSL_LIBS="-l:libssl.a -l:libcrypto.a -ldl -pthread" \
         LIBEV_LIBS="-l:libev.a" \
-        JEMALLOC_LIBS="-l:libjemalloc.a" && \
+        JEMALLOC_LIBS="-l:libjemalloc.a -lm" && \
     make -j$(nproc) && \
     strip examples/client examples/server && \
     cp examples/client examples/server /usr/local/bin && \
@@ -30,7 +29,7 @@ RUN apt-get update && \
     apt-get -y autoremove --purge && \
     rm -rf /var/log/*
 
-FROM gcr.io/distroless/cc-debian10
+FROM gcr.io/distroless/cc-debian11:latest-amd64
 
 COPY --from=build /usr/local/bin/client /usr/local/bin/server /usr/local/bin/
 COPY --from=build /etc/mime.types /etc/
