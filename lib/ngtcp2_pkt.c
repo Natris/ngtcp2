@@ -184,6 +184,8 @@ ngtcp2_ssize ngtcp2_pkt_decode_hd_long(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
 
   if (version == 0) {
     type = NGTCP2_PKT_VERSION_NEGOTIATION;
+    /* Version Negotiation is not a long header packet. */
+    flags = NGTCP2_PKT_FLAG_NONE;
     /* This must be Version Negotiation packet which lacks packet
        number and payload length fields. */
     len = 5 + 2;
@@ -268,10 +270,15 @@ ngtcp2_ssize ngtcp2_pkt_decode_hd_long(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
   }
 
   switch (type) {
-  case NGTCP2_PKT_VERSION_NEGOTIATION:
   case NGTCP2_PKT_RETRY:
     break;
   default:
+    if (!(flags & NGTCP2_PKT_FLAG_LONG_FORM)) {
+      assert(type == NGTCP2_PKT_VERSION_NEGOTIATION);
+      /* Version Negotiation is not a long header packet. */
+      break;
+    }
+
     /* Length */
     n = ngtcp2_get_varint_len(p);
     len += n - 1;
@@ -298,11 +305,17 @@ ngtcp2_ssize ngtcp2_pkt_decode_hd_long(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
   p += ntokenlen + tokenlen;
 
   switch (type) {
-  case NGTCP2_PKT_VERSION_NEGOTIATION:
   case NGTCP2_PKT_RETRY:
     dest->len = 0;
     break;
   default:
+    if (!(flags & NGTCP2_PKT_FLAG_LONG_FORM)) {
+      assert(type == NGTCP2_PKT_VERSION_NEGOTIATION);
+      /* Version Negotiation is not a long header packet. */
+      dest->len = 0;
+      break;
+    }
+
     vi = ngtcp2_get_varint(&n, p);
     if (vi > SIZE_MAX) {
       return NGTCP2_ERR_INVALID_ARGUMENT;
@@ -366,7 +379,7 @@ ngtcp2_ssize ngtcp2_pkt_encode_hd_long(uint8_t *out, size_t outlen,
                      len and 1 byte for packet number. */
 
   if (hd->type != NGTCP2_PKT_RETRY) {
-    len += 2 /* Length */ + hd->pkt_numlen;
+    len += NGTCP2_PKT_LENGTHLEN /* Length */ + hd->pkt_numlen;
   }
 
   if (hd->type == NGTCP2_PKT_INITIAL) {
@@ -405,7 +418,7 @@ ngtcp2_ssize ngtcp2_pkt_encode_hd_long(uint8_t *out, size_t outlen,
   }
 
   if (hd->type != NGTCP2_PKT_RETRY) {
-    p = ngtcp2_put_varint14(p, (uint16_t)hd->len);
+    p = ngtcp2_put_varint30(p, (uint32_t)hd->len);
     p = ngtcp2_put_pkt_num(p, hd->pkt_num, hd->pkt_numlen);
   }
 

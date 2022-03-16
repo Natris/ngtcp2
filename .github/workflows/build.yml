@@ -12,6 +12,7 @@ jobs:
         compiler: [gcc, clang]
         buildtool: [autotools, distcheck, cmake]
         openssl: [openssl1, openssl3]
+        sockaddr: [native-sockaddr, generic-sockaddr]
         exclude:
         - os: macos-10.15
           buildtool: distcheck
@@ -19,9 +20,24 @@ jobs:
           buildtool: distcheck
         - openssl: openssl3
           buildtool: distcheck
+        - compiler: gcc
+          sockaddr: generic-sockaddr
+        - openssl: openssl3
+          sockaddr: generic-sockaddr
+        - buildtool: distcheck
+          sockaddr: generic-sockaddr
+        - buildtool: cmake
+          sockaddr: generic-sockaddr
+        - os: macos-10.15
+          compiler: gcc
+        - os: macos-10.15
+          openssl: openssl3
 
     steps:
     - uses: actions/checkout@v2
+    - name: Startup
+      run: |
+        echo 'NGTCP2_SOURCE_DIR='"$PWD" >> $GITHUB_ENV
     - name: Linux setup
       if: runner.os == 'Linux'
       run: |
@@ -71,6 +87,10 @@ jobs:
     - name: Build BoringSSL
       run: |
         ./ci/build_boringssl.sh
+    - name: Build Picotls
+      if: matrix.openssl == 'openssl1'
+      run: |
+        ./ci/build_picotls.sh
     - name: Build nghttp3
       run: |
         ./ci/build_nghttp3.sh
@@ -80,11 +100,15 @@ jobs:
         LDFLAGS="$EXTRA_LDFLAGS -Wl,-rpath,$PWD/openssl/build/lib -Wl,-rpath,$PWD/openssl/build/lib64 -Wl,-rpath,$PWD/nettle-3.6/build/lib64"
         BORINGSSL_CFLAGS="-I$PWD/boringssl/include/"
         BORINGSSL_LIBS="-L$PWD/boringssl/build/ssl -lssl -L$PWD/boringssl/build/crypto -lcrypto"
+        PICOTLS_CFLAGS="-I$PWD/picotls/include/"
+        PICOTLS_LIBS="-L$PWD/picotls/build -lpicotls-openssl -lpicotls-core"
 
         echo 'PKG_CONFIG_PATH='"$PKG_CONFIG_PATH" >> $GITHUB_ENV
         echo 'LDFLAGS='"$LDFLAGS" >> $GITHUB_ENV
         echo 'BORINGSSL_CFLAGS='"$BORINGSSL_CFLAGS" >> $GITHUB_ENV
         echo 'BORINGSSL_LIBS='"$BORINGSSL_LIBS" >> $GITHUB_ENV
+        echo 'PICOTLS_CFLAGS='"$PICOTLS_CFLAGS" >> $GITHUB_ENV
+        echo 'PICOTLS_LIBS='"$PICOTLS_LIBS" >> $GITHUB_ENV
     - name: Enable ASAN
       if: runner.os == 'Linux'
       run: |
@@ -103,12 +127,29 @@ jobs:
         BORINGSSL_LIBS="$BORINGSSL_LIBS -pthread"
 
         echo 'BORINGSSL_LIBS='"$BORINGSSL_LIBS" >> $GITHUB_ENV
+    - name: Enable generic sockaddr
+      if: matrix.sockaddr == 'generic-sockaddr'
+      run: |
+        CFLAGS="$CFLAGS -DNGTCP2_USE_GENERIC_SOCKADDR"
+        EXTRA_AUTOTOOLS_OPTS="$EXTRA_AUTOTOOLS_OPTS --enable-lib-only"
+
+        echo 'CFLAGS='"$CFLAGS" >> $GITHUB_ENV
+        echo 'EXTRA_AUTOTOOLS_OPTS='"$EXTRA_AUTOTOOLS_OPTS" >> $GITHUB_ENV
+    - name: Enable Picotls when OpenSSL is v1
+      if: matrix.openssl == 'openssl1'
+      run: |
+        EXTRA_AUTOTOOLS_OPTS="$EXTRA_AUTOTOOLS_OPTS --with-picotls"
+        CMAKE_OPTS="$CMAKE_OPTS -DENABLE_PICOTLS=ON"
+
+        echo 'HAVE_PICOTLS=1' >> $GITHUB_ENV
+        echo 'EXTRA_AUTOTOOLS_OPTS='"$EXTRA_AUTOTOOLS_OPTS" >> $GITHUB_ENV
+        echo 'CMAKE_OPTS='"$CMAKE_OPTS" >> $GITHUB_ENV
     - name: Configure autotools
       if: matrix.buildtool == 'autotools'
       run: |
         autoreconf -i && \
         ./configure --enable-werror \
-          --with-openssl --with-gnutls --with-boringssl
+          --with-openssl --with-gnutls --with-boringssl $EXTRA_AUTOTOOLS_OPTS
     - name: Configure autotools for distcheck
       if: matrix.buildtool == 'distcheck'
       run: |
@@ -116,26 +157,51 @@ jobs:
     - name: Configure cmake
       if: matrix.buildtool == 'cmake'
       run: |
+        autoreconf -i && ./configure
+        make dist
+
+        VERSION=$(grep PACKAGE_VERSION config.h | cut -d' ' -f3 | tr -d '"')
+        tar xf ngtcp2-$VERSION.tar.gz
+        cd ngtcp2-$VERSION
+        mkdir build
+        cd build
+
+        echo 'NGTCP2_BUILD_DIR='"$PWD" >> $GITHUB_ENV
+
         cmake $CMAKE_OPTS \
+          -DENABLE_GNUTLS=ON \
+          -DENABLE_BORINGSSL=ON \
           -DBORINGSSL_LIBRARIES="$BORINGSSL_LIBS" \
-          -DBORINGSSL_INCLUDE_DIR="$PWD/boringssl/include/" .
+          -DBORINGSSL_INCLUDE_DIR="$NGTCP2_SOURCE_DIR/boringssl/include/" \
+          -DPICOTLS_LIBRARIES="$PICOTLS_LIBS" \
+          -DPICOTLS_INCLUDE_DIR="$NGTCP2_SOURCE_DIR/picotls/include/" ..
     - name: Build ngtcp2
       if: matrix.buildtool != 'distcheck'
       run: |
+        [ -n "$NGTCP2_BUILD_DIR" ] && cd "$NGTCP2_BUILD_DIR"
         make
         make check
     - name: Build ngtcp2 with distcheck
       if: matrix.buildtool == 'distcheck'
       run: |
         make distcheck \
-          DISTCHECK_CONFIGURE_FLAGS="--enable-werror --with-openssl --with-gnutls --with-boringssl"
+          DISTCHECK_CONFIGURE_FLAGS="--enable-werror --with-openssl --with-gnutls --with-boringssl $EXTRA_AUTOTOOLS_OPTS"
     - name: Integration test
-      if: matrix.buildtool != 'distcheck'
+      if: matrix.buildtool != 'distcheck' && matrix.sockaddr == 'native-sockaddr'
       run: |
-        ./ci/gen-certificate.sh
-        NETTLE_PATH=$PWD/nettle-3.6/build/lib64
-        for client in client gtlsclient bsslclient; do
-          for server in server gtlsserver bsslserver; do
+        [ -n "$NGTCP2_BUILD_DIR" ] && cd "$NGTCP2_BUILD_DIR"
+        "$NGTCP2_SOURCE_DIR"/ci/gen-certificate.sh
+        NETTLE_PATH=$NGTCP2_SOURCE_DIR/nettle-3.6/build/lib64
+
+        CLIENTS="client gtlsclient bsslclient"
+        SERVERS="server gtlsserver bsslserver"
+        if [ "$HAVE_PICOTLS" = "1" ]; then
+          CLIENTS="$CLIENTS ptlsclient"
+          SERVERS="$SERVERS ptlsserver"
+        fi
+
+        for client in $CLIENTS; do
+          for server in $SERVERS; do
             echo "# $client - $server"
             LD_LIBRARY_PATH=$NETTLE_PATH ./examples/$server localhost 4433 cert/server.key cert/server.crt &
             LD_LIBRARY_PATH=$NETTLE_PATH ./examples/$client localhost 4433 https://localhost/ --exit-on-first-stream-close

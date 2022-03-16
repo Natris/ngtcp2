@@ -60,6 +60,9 @@ set(ngtcp2_SOURCES
   ngtcp2_version.c
   ngtcp2_rst.c
   ngtcp2_window_filter.c
+  ngtcp2_opl.c
+  ngtcp2_balloc.c
+  ngtcp2_objalloc.c
 )
 
 set(ngtcp2_INCLUDE_DIRS
@@ -88,6 +91,7 @@ if(HAVE_CUNIT OR ENABLE_STATIC_LIB)
   set_target_properties(ngtcp2_static PROPERTIES
     COMPILE_FLAGS "${WARNCFLAGS}"
     VERSION ${LT_VERSION} SOVERSION ${LT_SOVERSION}
+    C_VISIBILITY_PRESET hidden
   )
   target_compile_definitions(ngtcp2_static PUBLIC "-DNGTCP2_STATICLIB")
   target_include_directories(ngtcp2_static PUBLIC ${ngtcp2_INCLUDE_DIRS})

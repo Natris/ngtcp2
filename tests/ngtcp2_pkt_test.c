@@ -226,7 +226,7 @@ void test_ngtcp2_pkt_decode_hd_long(void) {
 
   rv = ngtcp2_pkt_encode_hd_long(buf, sizeof(buf), &hd);
 
-  len = 1 + 4 + 1 + dcid.datalen + 1 + scid.datalen + 2 + 4;
+  len = 1 + 4 + 1 + dcid.datalen + 1 + scid.datalen + NGTCP2_PKT_LENGTHLEN + 4;
 
   CU_ASSERT((ngtcp2_ssize)len == rv);
   CU_ASSERT(buf[0] & NGTCP2_FIXED_BIT_MASK);
@@ -249,7 +249,7 @@ void test_ngtcp2_pkt_decode_hd_long(void) {
 
   rv = ngtcp2_pkt_encode_hd_long(buf, sizeof(buf), &hd);
 
-  len = 1 + 4 + 1 + dcid.datalen + 1 + scid.datalen + 2 + 4;
+  len = 1 + 4 + 1 + dcid.datalen + 1 + scid.datalen + NGTCP2_PKT_LENGTHLEN + 4;
 
   CU_ASSERT((ngtcp2_ssize)len == rv);
   CU_ASSERT((buf[0] & NGTCP2_FIXED_BIT_MASK) == 0);
@@ -274,13 +274,13 @@ void test_ngtcp2_pkt_decode_hd_long(void) {
 
   len = 1 + 4 + 1 + dcid.datalen + 1 + scid.datalen;
 
-  CU_ASSERT((ngtcp2_ssize)len == rv - 2 /* payloadlen */ - 4 /* pkt_num */);
+  CU_ASSERT((ngtcp2_ssize)len == rv - NGTCP2_PKT_LENGTHLEN - 4 /* pkt_num */);
 
   rv = pkt_decode_hd_long(&nhd, buf, len);
 
   CU_ASSERT((ngtcp2_ssize)len == rv);
   CU_ASSERT(NGTCP2_PKT_VERSION_NEGOTIATION == nhd.type);
-  CU_ASSERT(hd.flags == nhd.flags);
+  CU_ASSERT((hd.flags & ~NGTCP2_PKT_FLAG_LONG_FORM) == nhd.flags);
   CU_ASSERT(ngtcp2_cid_eq(&hd.dcid, &nhd.dcid));
   CU_ASSERT(ngtcp2_cid_eq(&hd.scid, &nhd.scid));
   CU_ASSERT(hd.pkt_num == nhd.pkt_num);

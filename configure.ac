@@ -22,7 +22,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 AC_PREREQ(2.61)
-AC_INIT([ngtcp2], [0.1.0], [t-tujikawa@users.sourceforge.net])
+AC_INIT([ngtcp2], [0.2.1], [t-tujikawa@users.sourceforge.net])
 AC_CONFIG_AUX_DIR([.])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
@@ -41,15 +41,15 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 # See versioning rule:
 #  https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-AC_SUBST(LT_CURRENT, 0)
-AC_SUBST(LT_REVISION, 0)
+AC_SUBST(LT_CURRENT, 1)
+AC_SUBST(LT_REVISION, 1)
 AC_SUBST(LT_AGE, 0)
 
-AC_SUBST(CRYPTO_OPENSSL_LT_CURRENT, 0)
+AC_SUBST(CRYPTO_OPENSSL_LT_CURRENT, 1)
 AC_SUBST(CRYPTO_OPENSSL_LT_REVISION, 0)
 AC_SUBST(CRYPTO_OPENSSL_LT_AGE, 0)
 
-AC_SUBST(CRYPTO_GNUTLS_LT_CURRENT, 0)
+AC_SUBST(CRYPTO_GNUTLS_LT_CURRENT, 1)
 AC_SUBST(CRYPTO_GNUTLS_LT_REVISION, 0)
 AC_SUBST(CRYPTO_GNUTLS_LT_AGE, 0)
 
@@ -78,6 +78,15 @@ if test "x${debug}" = "xyes"; then
   AC_SUBST([DEBUGCFLAGS])
   AC_DEFINE([DEBUGBUILD], [1], [Define to 1 to enable debug output.])
 fi
+
+AC_ARG_ENABLE([memdebug],
+    [AS_HELP_STRING([--enable-memdebug],
+                    [Turn on memory allocation debug output])],
+    [memdebug=$enableval], [memdebug=no])
+
+AC_ARG_ENABLE([mempool],
+    [AS_HELP_STRING([--enable-mempool], [Turn on memory pool [default=yes]])],
+    [mempool=$enableval], [mempool=yes])
 
 AC_ARG_ENABLE(asan,
     AS_HELP_STRING([--enable-asan],
@@ -124,8 +133,16 @@ AC_ARG_WITH([boringssl],
                     [Use boringssl [default=no]])],
     [request_boringssl=$withval], [request_boringssl=no])
 
+AC_ARG_WITH([picotls],
+    [AS_HELP_STRING([--with-picotls],
+                    [Use picotls [default=no]])],
+    [request_picotls=$withval], [request_picotls=no])
+
 AC_ARG_VAR([BORINGSSL_CFLAGS], [C compiler flags for BORINGSSL])
 AC_ARG_VAR([BORINGSSL_LIBS], [linker flags for BORINGSSL])
+
+AC_ARG_VAR([PICOTLS_CFLAGS], [C compiler flags for PICOTLS])
+AC_ARG_VAR([PICOTLS_LIBS], [linker flags for PICOTLS])
 
 AC_ARG_VAR([LIBEV_CFLAGS], [C compiler flags for libev, skipping any checks])
 AC_ARG_VAR([LIBEV_LIBS], [linker flags for libev, skipping any checks])
@@ -198,38 +215,50 @@ AM_CONDITIONAL([HAVE_CUNIT], [ test "x${have_cunit}" = "xyes" ])
 
 AM_CONDITIONAL([ENABLE_SHARED], [ test "x${enable_shared}" = "xyes" ])
 
-# OpenSSL (required for libngtcp2_crypto_openssl and examples)
+# OpenSSL (required for libngtcp2_crypto_openssl,
+# libngtcp2_crypto_picotls and examples)
 have_openssl=no
+have_vanilla_openssl=no
 if test "x${request_openssl}" != "xno"; then
   PKG_CHECK_MODULES([OPENSSL], [openssl >= 1.1.1],
                     [have_openssl=yes], [have_openssl=no])
   if test "x${have_openssl}" = "xno"; then
     AC_MSG_NOTICE($OPENSSL_PKG_ERRORS)
-  fi
-  # Until OpenSSL gains mainline support for QUIC, check for a patched version.
-  save_CFLAGS="$CFLAGS"
-  save_LIBS="$LIBS"
-  CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
-  LIBS="$OPENSSL_LIBS $LIBS"
+  else
+    have_vanilla_openssl=yes
+    VANILLA_OPENSSL_LIBS="$OPENSSL_LIBS"
+    VANILLA_OPENSSL_CFLAGS="$OPENSSL_CFLAGS"
 
-  AC_MSG_CHECKING([for SSL_is_quic])
-  AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-    #include <openssl/ssl.h>
-  ]], [[
-    SSL *ssl = NULL;
-    SSL_is_quic(ssl);
-  ]])],
-  [AC_MSG_RESULT([yes]); have_openssl_quic=yes],
-  [AC_MSG_RESULT([no]); have_openssl_quic=no])
+    AC_SUBST(VANILLA_OPENSSL_LIBS)
+    AC_SUBST(VANILLA_OPENSSL_CFLAGS)
 
-  CFLAGS="$save_CFLAGS"
-  LIBS="$save_LIBS"
+    # Until OpenSSL gains mainline support for QUIC, check for a
+    # patched version.
 
-  if test "x${have_openssl}${have_openssl_quic}" = "xyesno"; then
-    AC_MSG_NOTICE([openssl does not have QUIC interface, disabling it])
-    have_openssl=no
-    OPENSSL_LIBS=
-    OPENSSL_CFLAGS=
+    save_CFLAGS="$CFLAGS"
+    save_LIBS="$LIBS"
+    CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
+    LIBS="$OPENSSL_LIBS $LIBS"
+
+    AC_MSG_CHECKING([for SSL_is_quic])
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+      #include <openssl/ssl.h>
+    ]], [[
+      SSL *ssl = NULL;
+      SSL_is_quic(ssl);
+    ]])],
+    [AC_MSG_RESULT([yes]); have_openssl_quic=yes],
+    [AC_MSG_RESULT([no]); have_openssl_quic=no])
+
+    CFLAGS="$save_CFLAGS"
+    LIBS="$save_LIBS"
+
+    if test "x${have_openssl_quic}" = "xno"; then
+      AC_MSG_NOTICE([openssl does not have QUIC interface, disabling it])
+      have_openssl=no
+      OPENSSL_LIBS=
+      OPENSSL_CFLAGS=
+    fi
   fi
 fi
 
@@ -262,7 +291,7 @@ have_boringssl=no
 if test "x${request_boringssl}" != "xno"; then
   save_CFLAGS="$CFLAGS"
   save_LIBS="$LIBS"
-  CFLAGS="$BORINGSSL_CFLAGS"
+  CFLAGS="$BORINGSSL_CFLAGS $CFLAGS"
   LIBS="$BORINGSSL_LIBS $LIBS"
 
   AC_MSG_CHECKING([for SSL_set_quic_early_data_context])
@@ -286,10 +315,40 @@ fi
 
 AM_CONDITIONAL([HAVE_BORINGSSL], [ test "x${have_boringssl}" = "xyes" ])
 
+# Picotls openssl backend (required for libngtcp2_crypto_picotls)
+have_picotls=no
+if test "x${request_picotls}" != "xno"; then
+  save_CFLAGS="$CFLAGS"
+  save_LIBS="$LIBS"
+  CFLAGS="$PICOTLS_CFLAGS $VANILLA_OPENSSL_CFLAGS $CFLAGS"
+  LIBS="$PICOTLS_LIBS $VANILLA_OPENSSL_LIBS $LIBS"
+
+  AC_MSG_CHECKING([for ptls_openssl_random_bytes])
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+    #include <picotls.h>
+    #include <picotls/openssl.h>
+  ]], [[
+    ptls_openssl_random_bytes(NULL, 0);
+  ]])],
+  [AC_MSG_RESULT([yes]); have_picotls=yes],
+  [AC_MSG_RESULT([no]); have_picotls=no])
+
+  CFLAGS="$save_CFLAGS"
+  LIBS="$save_LIBS"
+fi
+
+if test "x${request_picotls}" = "xyes" &&
+   test "x${have_picotls}" != "xyes"; then
+  AC_MSG_ERROR([picotls was requested (--with-picotls) but not found])
+fi
+
+AM_CONDITIONAL([HAVE_PICOTLS], [ test "x${have_picotls}" = "xyes" ])
+
 have_crypto=no
 if test "x${have_openssl}" = "xyes" ||
    test "x${have_gnutls}" = "xyes" ||
-   test "x${have_boringssl}" = "xyes"; then
+   test "x${have_boringssl}" = "xyes" ||
+   test "x${have_picotls}" = "xyes"; then
   have_crypto=yes
 fi
 
@@ -298,7 +357,7 @@ AM_CONDITIONAL([HAVE_CRYPTO], [ test "x${have_crypto}" = "xyes" ])
 # libnghttp3 (required for examples)
 have_libnghttp3=no
 if test "x${request_libnghttp3}" != "xno"; then
-  PKG_CHECK_MODULES([LIBNGHTTP3], [libnghttp3 >= 0.0.0],
+  PKG_CHECK_MODULES([LIBNGHTTP3], [libnghttp3 >= 0.2.0],
                     [have_libnghttp3=yes], [have_libnghttp3=no])
   if test "${have_libnghttp3}" = "xno"; then
     AC_MSG_NOTICE($LIBNGHTTP3_PKG_ERRORS)
@@ -359,12 +418,18 @@ if test "x${lib_only}" = "xno" &&
     AC_DEFINE([ENABLE_EXAMPLE_BORINGSSL], [1],
               [Define to 1 in order to build examples/{bsslclient,bsslserver}])
   fi
+
+  if test "x${have_picotls}" = "xyes"; then
+    AC_DEFINE([ENABLE_EXAMPLE_PICOTLS], [1],
+              [Define to 1 in order to build examples/{ptlsclient,ptlsserver}])
+  fi
 fi
 
 AM_CONDITIONAL([ENABLE_EXAMPLES], [ test "x${enable_examples}" = "xyes" ])
 AM_CONDITIONAL([ENABLE_EXAMPLE_OPENSSL], [ test "x${enable_examples}" = "xyes" && test "x${have_openssl}" = "xyes" ])
 AM_CONDITIONAL([ENABLE_EXAMPLE_GNUTLS], [ test "x${enable_examples}" = "xyes" && test "x${have_gnutls}" = "xyes" ])
 AM_CONDITIONAL([ENABLE_EXAMPLE_BORINGSSL], [ test "x${enable_examples}" = "xyes" && test "x${have_boringssl}" = "xyes" ])
+AM_CONDITIONAL([ENABLE_EXAMPLE_PICOTLS], [ test "x${enable_examples}" = "xyes" && test "x${have_picotls}" = "xyes" ])
 
 # jemalloc
 have_jemalloc=no
@@ -550,6 +615,15 @@ if test "x$asan" != "xno"; then
                           [LDFLAGS="$save_LDFLAGS"])
 fi
 
+if test "x${memdebug}" = "xyes"; then
+  AC_DEFINE([MEMDEBUG], [1],
+            [Define to 1 to enable memory allocation debug output.])
+fi
+
+if test "x${mempool}" != "xyes"; then
+  AC_DEFINE([NOMEMPOOL], [1], [Define to 1 to disable memory pool.])
+fi
+
 # extra flags for API function visibility
 EXTRACFLAG=
 AX_CHECK_COMPILE_FLAG([-fvisibility=hidden], [EXTRACFLAG="-fvisibility=hidden"])
@@ -571,6 +645,8 @@ AC_CONFIG_FILES([
   crypto/gnutls/libngtcp2_crypto_gnutls.pc
   crypto/boringssl/Makefile
   crypto/boringssl/libngtcp2_crypto_boringssl.pc
+  crypto/picotls/Makefile
+  crypto/picotls/libngtcp2_crypto_picotls.pc
   doc/Makefile
   doc/source/conf.py
   third-party/Makefile
@@ -608,6 +684,7 @@ AC_MSG_NOTICE([summary of build options:
       libngtcp2_crypto_openssl:   ${have_openssl}
       libngtcp2_crypto_gnutls:    ${have_gnutls}
       libngtcp2_crypto_boringssl: ${have_boringssl}
+      libngtcp2_crypto_picotls:   ${have_picotls}
     Test:
       CUnit:          ${have_cunit} (CFLAGS='${CUNIT_CFLAGS}' LIBS='${CUNIT_LIBS}')
     Debug:
@@ -619,5 +696,6 @@ AC_MSG_NOTICE([summary of build options:
       Jemalloc:       ${have_jemalloc} (CFLAGS='${JEMALLOC_CFLAGS}' LIBS='${JEMALLOC_LIBS}')
       GnuTLS:         ${have_gnutls} (CFLAGS='${GNUTLS_CFLAGS}' LIBS='${GNUTLS_LIBS}')
       BoringSSL:      ${have_boringssl} (CFLAGS='${BORINGSSL_CFLAGS}' LIBS='${BORINGSSL_LIBS}')
+      Picotls:        ${have_picotls} (CFLAGS='${PICOTLS_CFLAGS}' LIBS='${PICOTLS_LIBS}')
     Examples:         ${enable_examples}
 ])

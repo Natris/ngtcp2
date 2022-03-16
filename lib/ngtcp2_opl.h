@@ -1,7 +1,7 @@
 /*
  * ngtcp2
  *
- * Copyright (c) 2021 ngtcp2 contributors
+ * Copyright (c) 2022 ngtcp2 contributors
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,22 +22,44 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "util.h"
+#ifndef NGTCP2_OPL_H
+#define NGTCP2_OPL_H
 
-#include <ngtcp2/ngtcp2_crypto.h>
+#ifdef HAVE_CONFIG_H
+#  include <config.h>
+#endif /* HAVE_CONFIG_H */
 
-#include <openssl/evp.h>
+#include <ngtcp2/ngtcp2.h>
 
-namespace ngtcp2 {
+typedef struct ngtcp2_opl_entry ngtcp2_opl_entry;
 
-namespace util {
+struct ngtcp2_opl_entry {
+  ngtcp2_opl_entry *next;
+};
 
-ngtcp2_crypto_aead crypto_aead_aes_128_gcm() {
-  ngtcp2_crypto_aead aead;
-  ngtcp2_crypto_aead_init(&aead, const_cast<EVP_CIPHER *>(EVP_aes_128_gcm()));
-  return aead;
-}
+/*
+ * ngtcp2_opl is an object memory pool.
+ */
+typedef struct ngtcp2_opl {
+  ngtcp2_opl_entry *head;
+} ngtcp2_opl;
 
-} // namespace util
+/*
+ * ngtcp2_opl_init initializes |opl|.
+ */
+void ngtcp2_opl_init(ngtcp2_opl *opl);
 
-} // namespace ngtcp2
+/*
+ * ngtcp2_opl_push inserts |ent| to |opl| head.
+ */
+void ngtcp2_opl_push(ngtcp2_opl *opl, ngtcp2_opl_entry *ent);
+
+/*
+ * ngtcp2_opl_pop removes the first ngtcp2_opl_entry from |opl| and
+ * returns it.  If |opl| does not have any entry, it returns NULL.
+ */
+ngtcp2_opl_entry *ngtcp2_opl_pop(ngtcp2_opl *opl);
+
+void ngtcp2_opl_clear(ngtcp2_opl *opl);
+
+#endif /* NGTCP2_OPL_H */

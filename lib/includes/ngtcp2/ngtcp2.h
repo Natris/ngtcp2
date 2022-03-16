@@ -32,6 +32,11 @@
 #  define WIN32
 #endif
 
+#ifdef WIN32
+#  pragma warning(push)
+#  pragma warning(disable : 4324)
+#endif
+
 #include <stdlib.h>
 #if defined(_MSC_VER) && (_MSC_VER < 1800)
 /* MSVC < 2013 does not have inttypes.h because it is not C99
@@ -45,10 +50,26 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-#ifdef WIN32
-#  include <winsock2.h>
+#ifndef NGTCP2_USE_GENERIC_SOCKADDR
+#  ifdef WIN32
+#    include <ws2tcpip.h>
+#  else
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#  endif
+#endif
+
+#ifdef AF_INET
+#  define NGTCP2_AF_INET AF_INET
 #else
-#  include <sys/socket.h>
+#  define NGTCP2_AF_INET 2
+#endif
+
+#ifdef AF_INET6
+#  define NGTCP2_AF_INET6 AF_INET6
+#else
+#  define NGTCP2_AF_INET6 23
+#  define NGTCP2_USE_GENERIC_IPV6_SOCKADDR
 #endif
 
 #include <ngtcp2/version.h>
@@ -70,11 +91,9 @@
 #endif   /* !defined(WIN32) */
 
 #ifdef WIN32
-#  define NGTCP2_ALIGN_BEFORE(N) __declspec(align(N))
-#  define NGTCP2_ALIGN_AFTER(N)
+#  define NGTCP2_ALIGN(N) __declspec(align(N))
 #else /* !WIN32 */
-#  define NGTCP2_ALIGN_BEFORE(N)
-#  define NGTCP2_ALIGN_AFTER(N) __attribute__((aligned(N)))
+#  define NGTCP2_ALIGN(N) __attribute__((aligned(N)))
 #endif /* !WIN32 */
 
 #ifdef __cplusplus
@@ -127,7 +146,7 @@ typedef void *(*ngtcp2_realloc)(void *ptr, size_t size, void *mem_user_data);
 /**
  * @struct
  *
- * Custom memory allocator functions and user defined pointer.  The
+ * :type:`ngtcp2_mem` is a custom memory allocator.  The
  * |mem_user_data| member is passed to each allocator function.  This
  * can be used, for example, to achieve per-connection memory pool.
  *
@@ -456,7 +475,7 @@ typedef struct ngtcp2_mem {
  *
  * :type:`ngtcp2_pkt_info` is a packet metadata.
  */
-typedef NGTCP2_ALIGN_BEFORE(8) struct NGTCP2_ALIGN_AFTER(8) ngtcp2_pkt_info {
+typedef struct NGTCP2_ALIGN(8) ngtcp2_pkt_info {
   /**
    * :member:`ecn` is ECN marking and when passing
    * `ngtcp2_conn_read_pkt()`, and it should be either
@@ -1468,11 +1487,11 @@ typedef struct ngtcp2_conn_stat {
   ngtcp2_tstamp loss_detection_timer;
   /**
    * :member:`last_tx_pkt_ts` corresponds to
-   * time_of_last_ack_eliciting_packet in RFC 9002.
+   * time_of_last_ack_eliciting_packet in :rfc:`9002`.
    */
   ngtcp2_tstamp last_tx_pkt_ts[NGTCP2_PKTNS_ID_MAX];
   /**
-   * :member:`loss_time` corresponds to loss_time in RFC 9002.
+   * :member:`loss_time` corresponds to loss_time in :rfc:`9002`.
    */
   ngtcp2_tstamp loss_time[NGTCP2_PKTNS_ID_MAX];
   /**
@@ -1730,6 +1749,89 @@ typedef struct ngtcp2_settings {
   ngtcp2_duration handshake_timeout;
 } ngtcp2_settings;
 
+#ifdef NGTCP2_USE_GENERIC_SOCKADDR
+typedef struct ngtcp2_sockaddr {
+  uint16_t sa_family;
+  uint8_t sa_data[14];
+} ngtcp2_sockaddr;
+
+typedef struct ngtcp2_in_addr {
+  uint32_t s_addr;
+} ngtcp2_in_addr;
+
+typedef struct ngtcp2_sockaddr_in {
+  uint16_t sin_family;
+  uint16_t sin_port;
+  ngtcp2_in_addr sin_addr;
+  uint8_t sin_zero[8];
+} ngtcp2_sockaddr_in;
+
+#  define NGTCP2_SS_MAXSIZE 128
+#  define NGTCP2_SS_ALIGNSIZE (sizeof(uint64_t))
+#  define NGTCP2_SS_PAD1SIZE (NGTCP2_SS_ALIGNSIZE - sizeof(uint16_t))
+#  define NGTCP2_SS_PAD2SIZE                                                   \
+    (NGTCP2_SS_MAXSIZE -                                                       \
+     (sizeof(uint16_t) + NGTCP2_SS_PAD1SIZE + NGTCP2_SS_ALIGNSIZE))
+
+typedef struct ngtcp2_sockaddr_storage {
+  uint16_t ss_family;
+  uint8_t _ss_pad1[NGTCP2_SS_PAD1SIZE];
+  uint64_t _ss_align;
+  uint8_t _ss_pad2[NGTCP2_SS_PAD2SIZE];
+} ngtcp2_sockaddr_storage;
+
+#  undef NGTCP2_SS_PAD2SIZE
+#  undef NGTCP2_SS_PAD1SIZE
+#  undef NGTCP2_SS_ALIGNSIZE
+#  undef NGTCP2_SS_MAXSIZE
+
+typedef uint32_t ngtcp2_socklen;
+#else
+/**
+ * @typedef
+ *
+ * :type:`ngtcp2_sockaddr` is typedefed to struct sockaddr.  If
+ * :macro:`NGTCP2_USE_GENERIC_SOCKADDR` is defined, it is typedefed to
+ * the generic struct sockaddr defined in ngtcp2.h.
+ */
+typedef struct sockaddr ngtcp2_sockaddr;
+/**
+ * @typedef
+ *
+ * :type:`ngtcp2_sockaddr_storage` is typedefed to struct
+ * sockaddr_storage.  If :macro:`NGTCP2_USE_GENERIC_SOCKADDR` is
+ * defined, it is typedefed to the generic struct sockaddr_storage
+ * defined in ngtcp2.h.
+ */
+typedef struct sockaddr_storage ngtcp2_sockaddr_storage;
+typedef struct sockaddr_in ngtcp2_sockaddr_in;
+/**
+ * @typedef
+ *
+ * :type:`ngtcp2_socklen` is typedefed to socklen_t.  If
+ * :macro:`NGTCP2_USE_GENERIC_SOCKADDR` is defined, it is typedefed to
+ * uint32_t.
+ */
+typedef socklen_t ngtcp2_socklen;
+#endif
+
+#if defined(NGTCP2_USE_GENERIC_SOCKADDR) ||                                    \
+    defined(NGTCP2_USE_GENERIC_IPV6_SOCKADDR)
+typedef struct ngtcp2_in6_addr {
+  uint8_t in6_addr[16];
+} ngtcp2_in6_addr;
+
+typedef struct ngtcp2_sockaddr_in6 {
+  uint16_t sin6_family;
+  uint16_t sin6_port;
+  uint32_t sin6_flowinfo;
+  ngtcp2_in6_addr sin6_addr;
+  uint32_t sin6_scope_id;
+} ngtcp2_sockaddr_in6;
+#else
+typedef struct sockaddr_in6 ngtcp2_sockaddr_in6;
+#endif
+
 /**
  * @struct
  *
@@ -1740,11 +1842,11 @@ typedef struct ngtcp2_addr {
    * :member:`addr` points to the buffer which contains endpoint
    * address.  It must not be ``NULL``.
    */
-  struct sockaddr *addr;
+  ngtcp2_sockaddr *addr;
   /**
    * :member:`addrlen` is the length of addr.
    */
-  size_t addrlen;
+  ngtcp2_socklen addrlen;
 } ngtcp2_addr;
 
 /**
@@ -1793,11 +1895,11 @@ typedef struct ngtcp2_path_storage {
   /**
    * :member:`local_addrbuf` is a buffer to store local address.
    */
-  struct sockaddr_storage local_addrbuf;
+  ngtcp2_sockaddr_storage local_addrbuf;
   /**
    * :member:`remote_addrbuf` is a buffer to store remote address.
    */
-  struct sockaddr_storage remote_addrbuf;
+  ngtcp2_sockaddr_storage remote_addrbuf;
 } ngtcp2_path_storage;
 
 /**
@@ -2019,9 +2121,11 @@ ngtcp2_pkt_decode_version_cid(uint32_t *pversion, const uint8_t **pdcid,
  * Negotiation packet has random type in wire format.  For
  * convenience, this function sets
  * :enum:`ngtcp2_pkt_type.NGTCP2_PKT_VERSION_NEGOTIATION` to
- * :member:`dest->type <ngtcp2_pkt_hd.type>`, and sets 0 to
- * :member:`dest->len <ngtcp2_pkt_hd.len>`.  Version Negotiation
- * packet occupies a single packet.
+ * :member:`dest->type <ngtcp2_pkt_hd.type>`, clears
+ * :macro:`NGTCP2_PKT_FLAG_LONG_FORM` flag from :member:`dest->flags
+ * <ngtcp2_pkt_hd.flags>`, and sets 0 to :member:`dest->len
+ * <ngtcp2_pkt_hd.len>`.  Version Negotiation packet occupies a single
+ * packet.
  *
  * It stores the result in the object pointed by |dest|, and returns
  * the number of bytes decoded to read the packet header if it
@@ -3339,15 +3443,17 @@ NGTCP2_EXTERN ngtcp2_ssize ngtcp2_conn_write_pkt_versioned(
 /**
  * @function
  *
- * `ngtcp2_conn_handshake_completed` tells |conn| that the QUIC
- * handshake has completed.
+ * `ngtcp2_conn_handshake_completed` tells |conn| that the TLS stack
+ * declares TLS handshake completion.  This does not mean QUIC
+ * handshake has completed.  The library needs extra conditions to be
+ * met.
  */
 NGTCP2_EXTERN void ngtcp2_conn_handshake_completed(ngtcp2_conn *conn);
 
 /**
  * @function
  *
- * `ngtcp2_conn_get_handshake_completed` returns nonzero if handshake
+ * `ngtcp2_conn_get_handshake_completed` returns nonzero if QUIC handshake
  * has completed.
  */
 NGTCP2_EXTERN int ngtcp2_conn_get_handshake_completed(ngtcp2_conn *conn);
@@ -4370,6 +4476,13 @@ NGTCP2_EXTERN size_t ngtcp2_conn_get_active_dcid(ngtcp2_conn *conn,
 /**
  * @function
  *
+ * `ngtcp2_conn_get_original_version` returns the original version.
+ */
+NGTCP2_EXTERN uint32_t ngtcp2_conn_get_original_version(ngtcp2_conn *conn);
+
+/**
+ * @function
+ *
  * `ngtcp2_conn_get_negotiated_version` returns the negotiated version.
  */
 NGTCP2_EXTERN uint32_t ngtcp2_conn_get_negotiated_version(ngtcp2_conn *conn);
@@ -4966,8 +5079,8 @@ NGTCP2_EXTERN uint64_t ngtcp2_err_infer_quic_transport_error_code(int liberr);
  * returns |dest|.
  */
 NGTCP2_EXTERN ngtcp2_addr *ngtcp2_addr_init(ngtcp2_addr *dest,
-                                            const struct sockaddr *addr,
-                                            size_t addrlen);
+                                            const ngtcp2_sockaddr *addr,
+                                            ngtcp2_socklen addrlen);
 
 /**
  * @function
@@ -4980,8 +5093,8 @@ NGTCP2_EXTERN ngtcp2_addr *ngtcp2_addr_init(ngtcp2_addr *dest,
  * capacity to store the copy.
  */
 NGTCP2_EXTERN void ngtcp2_addr_copy_byte(ngtcp2_addr *dest,
-                                         const struct sockaddr *addr,
-                                         size_t addrlen);
+                                         const ngtcp2_sockaddr *addr,
+                                         ngtcp2_socklen addrlen);
 
 /**
  * @function
@@ -4990,10 +5103,10 @@ NGTCP2_EXTERN void ngtcp2_addr_copy_byte(ngtcp2_addr *dest,
  * arguments.  This function copies |local_addr| and |remote_addr|.
  */
 NGTCP2_EXTERN void ngtcp2_path_storage_init(ngtcp2_path_storage *ps,
-                                            const struct sockaddr *local_addr,
-                                            size_t local_addrlen,
-                                            const struct sockaddr *remote_addr,
-                                            size_t remote_addrlen,
+                                            const ngtcp2_sockaddr *local_addr,
+                                            ngtcp2_socklen local_addrlen,
+                                            const ngtcp2_sockaddr *remote_addr,
+                                            ngtcp2_socklen remote_addrlen,
                                             void *user_data);
 
 /**
@@ -5098,11 +5211,12 @@ typedef struct ngtcp2_info {
 /**
  * @function
  *
- * Returns a pointer to a ngtcp2_info struct with version information
- * about the run-time library in use.  The |least_version| argument
- * can be set to a 24 bit numerical value for the least accepted
- * version number and if the condition is not met, this function will
- * return a ``NULL``.  Pass in 0 to skip the version checking.
+ * `ngtcp2_version` returns a pointer to a ngtcp2_info struct with
+ * version information about the run-time library in use.  The
+ * |least_version| argument can be set to a 24 bit numerical value for
+ * the least accepted version number and if the condition is not met,
+ * this function will return a ``NULL``.  Pass in 0 to skip the
+ * version checking.
  */
 NGTCP2_EXTERN const ngtcp2_info *ngtcp2_version(int least_version);
 
@@ -5319,6 +5433,10 @@ NGTCP2_EXTERN int ngtcp2_path_eq(const ngtcp2_path *a, const ngtcp2_path *b);
  */
 #define ngtcp2_settings_default(SETTINGS)                                      \
   ngtcp2_settings_default_versioned(NGTCP2_SETTINGS_VERSION, (SETTINGS))
+
+#ifdef WIN32
+#  pragma warning(pop)
+#endif
 
 #ifdef __cplusplus
 }

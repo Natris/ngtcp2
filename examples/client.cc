@@ -47,7 +47,6 @@
 #include "debug.h"
 #include "util.h"
 #include "shared.h"
-#include "template.h"
 
 using namespace ngtcp2;
 using namespace std::literals;
@@ -100,18 +99,9 @@ int Stream::open_file(const std::string_view &path) {
 
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
-  ev_io_stop(loop, w);
-
   auto c = static_cast<Client *>(w->data);
 
-  auto rv = c->on_write();
-  switch (rv) {
-  case 0:
-    return;
-  case NETWORK_ERR_SEND_BLOCKED:
-    c->start_wev();
-    return;
-  }
+  c->on_write();
 }
 } // namespace
 
@@ -123,14 +113,8 @@ void readcb(struct ev_loop *loop, ev_io *w, int revents) {
   if (c->on_read(*ep) != 0) {
     return;
   }
-  auto rv = c->on_write();
-  switch (rv) {
-  case 0:
-    return;
-  case NETWORK_ERR_SEND_BLOCKED:
-    c->start_wev();
-    return;
-  }
+
+  c->on_write();
 }
 } // namespace
 
@@ -158,25 +142,10 @@ void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   rv = c->handle_expiry();
   if (rv != 0) {
-    goto fail;
-  }
-
-  rv = c->on_write();
-  if (rv != 0) {
-    goto fail;
-  }
-
-  return;
-
-fail:
-  switch (rv) {
-  case NETWORK_ERR_SEND_BLOCKED:
-    c->start_wev();
-    return;
-  default:
-    c->disconnect();
     return;
   }
+
+  c->on_write();
 }
 } // namespace
 
@@ -204,15 +173,7 @@ void delay_streamcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   ev_timer_stop(loop, w);
   c->on_extend_max_streams();
-
-  auto rv = c->on_write();
-  switch (rv) {
-  case 0:
-    return;
-  case NETWORK_ERR_SEND_BLOCKED:
-    c->start_wev();
-    return;
-  }
+  c->on_write();
 }
 } // namespace
 
@@ -234,7 +195,8 @@ Client::Client(struct ev_loop *loop)
       version_(0),
       early_data_(false),
       should_exit_(false),
-      handshake_confirmed_(false) {
+      handshake_confirmed_(false),
+      tx_{} {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   wev_.data = this;
   ev_timer_init(&timer_, timeoutcb, 0.,
@@ -260,8 +222,6 @@ Client::Client(struct ev_loop *loop)
 Client::~Client() {
   disconnect();
 
-  ev_io_stop(loop_, &wev_);
-
   if (httpconn_) {
     nghttp3_conn_del(httpconn_);
     httpconn_ = nullptr;
@@ -269,6 +229,8 @@ Client::~Client() {
 }
 
 void Client::disconnect() {
+  tx_.send_blocked = false;
+
   handle_error();
 
   config.tx_loss_prob = 0;
@@ -278,6 +240,8 @@ void Client::disconnect() {
   ev_timer_stop(loop_, &change_local_addr_timer_);
   ev_timer_stop(loop_, &rttimer_);
   ev_timer_stop(loop_, &timer_);
+
+  ev_io_stop(loop_, &wev_);
 
   for (auto &ep : endpoints_) {
     ev_io_stop(loop_, &ep.rev);
@@ -624,7 +588,7 @@ int recv_new_token(ngtcp2_conn *conn, const ngtcp2_vec *token,
 
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
                  const char *addr, const char *port, uint32_t version,
-                 const TLSClientContext &tls_ctx) {
+                 TLSClientContext &tls_ctx) {
   endpoints_.reserve(4);
 
   endpoints_.emplace_back();
@@ -796,8 +760,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
     }
   }
 
-  ev_io_set(&wev_, fd, EV_WRITE);
-
   ev_io_start(loop_, &ep.rev);
   ev_timer_again(loop_, &timer_);
 
@@ -834,6 +796,11 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
       // already set.  This is because OpenSSL might set Alert.
       last_error_ = quic_err_transport(rv);
       break;
+    case NGTCP2_ERR_CRYPTO:
+      if (!last_error_.code) {
+        process_unhandled_tls_alert();
+      }
+      // fall through
     default:
       if (!last_error_.code) {
         last_error_ = quic_err_transport(rv);
@@ -943,10 +910,17 @@ int Client::handle_expiry() {
 }
 
 int Client::on_write() {
-  if (auto rv = write_streams(); rv != 0) {
-    if (rv == NETWORK_ERR_SEND_BLOCKED) {
-      schedule_retransmit();
+  if (tx_.send_blocked) {
+    if (auto rv = send_blocked_packet(); rv != 0) {
+      return rv;
     }
+
+    if (tx_.send_blocked) {
+      return 0;
+    }
+  }
+
+  if (auto rv = write_streams(); rv != 0) {
     return rv;
   }
 
@@ -964,7 +938,6 @@ int Client::write_streams() {
   std::array<nghttp3_vec, 16> vec;
   ngtcp2_path_storage ps;
   size_t pktcnt = 0;
-  std::array<uint8_t, 64_k> buf;
   auto max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
   size_t max_pktcnt =
       (config.cc_algo == NGTCP2_CC_ALGO_BBR ||
@@ -1004,7 +977,7 @@ int Client::write_streams() {
     ngtcp2_pkt_info pi;
 
     auto nwrite = ngtcp2_conn_writev_stream(
-        conn_, &ps.path, &pi, buf.data(), max_udp_payload_size, &ndatalen,
+        conn_, &ps.path, &pi, tx_.data.data(), max_udp_payload_size, &ndatalen,
         flags, stream_id, reinterpret_cast<const ngtcp2_vec *>(v), vcnt, ts);
     if (nwrite < 0) {
       switch (nwrite) {
@@ -1066,26 +1039,33 @@ int Client::write_streams() {
     if (nwrite == 0) {
       // We are congestion limited.
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      ev_io_stop(loop_, &wev_);
       return 0;
     }
 
     reset_idle_timer();
 
-    if (auto rv = send_packet(*static_cast<Endpoint *>(ps.path.user_data),
-                              ps.path.remote, pi.ecn, buf.data(), nwrite);
+    auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
+
+    if (auto rv =
+            send_packet(ep, ps.path.remote, pi.ecn, tx_.data.data(), nwrite);
         rv != NETWORK_ERR_OK) {
       if (rv != NETWORK_ERR_SEND_BLOCKED) {
         last_error_ = quic_err_transport(NGTCP2_ERR_INTERNAL);
         disconnect();
-      } else {
-        ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+
+        return rv;
       }
-      return rv;
+
+      ngtcp2_conn_update_pkt_tx_time(conn_, ts);
+      on_send_blocked(ep, ps.path.remote, pi.ecn, nwrite);
+
+      return 0;
     }
 
     if (++pktcnt == max_pktcnt) {
       ngtcp2_conn_update_pkt_tx_time(conn_, ts);
-      ev_io_start(loop_, &wev_);
+      start_wev_endpoint(ep);
       return 0;
     }
   }
@@ -1475,6 +1455,65 @@ int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
   return NETWORK_ERR_OK;
 }
 
+void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
+                             unsigned int ecn, size_t datalen) {
+  assert(!tx_.send_blocked);
+
+  tx_.send_blocked = true;
+
+  memcpy(&tx_.blocked.remote_addr.su, remote_addr.addr, remote_addr.addrlen);
+  tx_.blocked.remote_addr.len = remote_addr.addrlen;
+  tx_.blocked.ecn = ecn;
+  tx_.blocked.datalen = datalen;
+  tx_.blocked.endpoint = &ep;
+
+  start_wev_endpoint(ep);
+}
+
+void Client::start_wev_endpoint(const Endpoint &ep) {
+  // We do not close ep.fd, so we can expect that each Endpoint has
+  // unique fd.
+  if (ep.fd != wev_.fd) {
+    if (ev_is_active(&wev_)) {
+      ev_io_stop(loop_, &wev_);
+    }
+
+    ev_io_set(&wev_, ep.fd, EV_WRITE);
+  }
+
+  ev_io_start(loop_, &wev_);
+}
+
+int Client::send_blocked_packet() {
+  assert(tx_.send_blocked);
+
+  ngtcp2_addr remote_addr{
+      .addr = &tx_.blocked.remote_addr.su.sa,
+      .addrlen = tx_.blocked.remote_addr.len,
+  };
+
+  auto rv = send_packet(*tx_.blocked.endpoint, remote_addr, tx_.blocked.ecn,
+                        tx_.data.data(), tx_.blocked.datalen);
+  if (rv != 0) {
+    if (rv == NETWORK_ERR_SEND_BLOCKED) {
+      assert(wev_.fd == tx_.blocked.endpoint->fd);
+
+      ev_io_start(loop_, &wev_);
+
+      return 0;
+    }
+
+    last_error_ = quic_err_transport(NGTCP2_ERR_INTERNAL);
+    disconnect();
+
+    return rv;
+  }
+
+  tx_.send_blocked = false;
+
+  return 0;
+}
+
 int Client::handle_error() {
   if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_)) {
     return 0;
@@ -1751,8 +1790,6 @@ int Client::select_preferred_address(Address &selected_addr,
   return 0;
 }
 
-void Client::start_wev() { ev_io_start(loop_, &wev_); }
-
 namespace {
 int http_recv_data(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data,
                    size_t datalen, void *user_data, void *stream_user_data) {
@@ -1822,8 +1859,8 @@ int http_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token,
 } // namespace
 
 namespace {
-int http_end_headers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
-                     void *stream_user_data) {
+int http_end_headers(nghttp3_conn *conn, int64_t stream_id, int fin,
+                     void *user_data, void *stream_user_data) {
   if (!config.quiet) {
     debug::print_http_end_headers(stream_id);
   }
@@ -1853,8 +1890,8 @@ int http_recv_trailer(nghttp3_conn *conn, int64_t stream_id, int32_t token,
 } // namespace
 
 namespace {
-int http_end_trailers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
-                      void *stream_user_data) {
+int http_end_trailers(nghttp3_conn *conn, int64_t stream_id, int fin,
+                      void *user_data, void *stream_user_data) {
   if (!config.quiet) {
     debug::print_http_end_trailers(stream_id);
   }
@@ -1954,7 +1991,7 @@ int Client::setup_httpconn() {
   };
   nghttp3_settings settings;
   nghttp3_settings_default(&settings);
-  settings.qpack_max_table_capacity = 4096;
+  settings.qpack_max_dtable_capacity = 4096;
   settings.qpack_blocked_streams = 100;
 
   auto mem = nghttp3_mem_default();
@@ -2024,7 +2061,7 @@ int Client::setup_httpconn() {
 
 namespace {
 int run(Client &c, const char *addr, const char *port,
-        const TLSClientContext &tls_ctx) {
+        TLSClientContext &tls_ctx) {
   Address remote_addr, local_addr;
 
   auto fd = create_sock(remote_addr, addr, port);

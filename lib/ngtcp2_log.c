@@ -155,10 +155,6 @@ static const char *strapperrorcode(uint64_t app_error_code) {
 
 static const char *strpkttype_long(uint8_t type) {
   switch (type) {
-  case NGTCP2_PKT_VERSION_NEGOTIATION:
-    return "VN";
-  case NGTCP2_PKT_STATELESS_RESET:
-    return "SR";
   case NGTCP2_PKT_INITIAL:
     return "Initial";
   case NGTCP2_PKT_RETRY:
@@ -176,7 +172,26 @@ static const char *strpkttype(const ngtcp2_pkt_hd *hd) {
   if (hd->flags & NGTCP2_PKT_FLAG_LONG_FORM) {
     return strpkttype_long(hd->type);
   }
-  return "Short";
+
+  switch (hd->type) {
+  case NGTCP2_PKT_VERSION_NEGOTIATION:
+    return "VN";
+  case NGTCP2_PKT_STATELESS_RESET:
+    return "SR";
+  case NGTCP2_PKT_SHORT:
+    return "Short";
+  default:
+    return "(unknown)";
+  }
+}
+
+static const char *strpkttype_type_flags(uint8_t type, uint8_t flags) {
+  ngtcp2_pkt_hd hd = {0};
+
+  hd.type = type;
+  hd.flags = flags;
+
+  return strpkttype(&hd);
 }
 
 static const char *strevent(ngtcp2_log_event ev) {
@@ -398,17 +413,11 @@ static void log_fr_path_response(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
 
 static void log_fr_crypto(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
                           const ngtcp2_crypto *fr, const char *dir) {
-  size_t datalen = 0;
-  size_t i;
-
-  for (i = 0; i < fr->datacnt; ++i) {
-    datalen += fr->data[i].len;
-  }
-
   log->log_printf(
       log->user_data,
       (NGTCP2_LOG_PKT " CRYPTO(0x%02x) offset=%" PRIu64 " len=%" PRIu64),
-      NGTCP2_LOG_FRM_HD_FIELDS(dir), fr->type, fr->offset, datalen);
+      NGTCP2_LOG_FRM_HD_FIELDS(dir), fr->type, fr->offset,
+      ngtcp2_vec_len(fr->data, fr->datacnt));
 }
 
 static void log_fr_new_token(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
@@ -573,7 +582,6 @@ void ngtcp2_log_rx_sr(ngtcp2_log *log, const ngtcp2_pkt_stateless_reset *sr) {
 
   memset(&shd, 0, sizeof(shd));
 
-  shd.flags = NGTCP2_PKT_FLAG_LONG_FORM;
   shd.type = NGTCP2_PKT_STATELESS_RESET;
 
   log->log_printf(
@@ -710,11 +718,9 @@ void ngtcp2_log_pkt_lost(ngtcp2_log *log, int64_t pkt_num, uint8_t type,
     return;
   }
 
-  ngtcp2_log_info(
-      log, NGTCP2_LOG_EVENT_RCV,
-      "pkn=%" PRId64 " lost type=%s(0x%02x) sent_ts=%" PRIu64, pkt_num,
-      (flags & NGTCP2_PKT_FLAG_LONG_FORM) ? strpkttype_long(type) : "Short",
-      type, sent_ts);
+  ngtcp2_log_info(log, NGTCP2_LOG_EVENT_RCV,
+                  "pkn=%" PRId64 " lost type=%s(0x%02x) sent_ts=%" PRIu64,
+                  pkt_num, strpkttype_type_flags(type, flags), type, sent_ts);
 }
 
 static void log_pkt_hd(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
@@ -732,9 +738,8 @@ static void log_pkt_hd(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
       dir, hd->pkt_num,
       (const char *)ngtcp2_encode_hex(dcid, hd->dcid.data, hd->dcid.datalen),
       (const char *)ngtcp2_encode_hex(scid, hd->scid.data, hd->scid.datalen),
-      (hd->flags & NGTCP2_PKT_FLAG_LONG_FORM) ? strpkttype_long(hd->type)
-                                              : "Short",
-      hd->type, hd->len, (hd->flags & NGTCP2_PKT_FLAG_KEY_PHASE) != 0);
+      strpkttype(hd), hd->type, hd->len,
+      (hd->flags & NGTCP2_PKT_FLAG_KEY_PHASE) != 0);
 }
 
 void ngtcp2_log_rx_pkt_hd(ngtcp2_log *log, const ngtcp2_pkt_hd *hd) {

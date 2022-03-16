@@ -46,6 +46,18 @@ int ngtcp2_frame_chain_new(ngtcp2_frame_chain **pfrc, const ngtcp2_mem *mem) {
   return 0;
 }
 
+int ngtcp2_frame_chain_objalloc_new(ngtcp2_frame_chain **pfrc,
+                                    ngtcp2_objalloc *objalloc) {
+  *pfrc = ngtcp2_objalloc_frame_chain_get(objalloc);
+  if (*pfrc == NULL) {
+    return NGTCP2_ERR_NOMEM;
+  }
+
+  ngtcp2_frame_chain_init(*pfrc);
+
+  return 0;
+}
+
 int ngtcp2_frame_chain_extralen_new(ngtcp2_frame_chain **pfrc, size_t extralen,
                                     const ngtcp2_mem *mem) {
   *pfrc = ngtcp2_mem_malloc(mem, sizeof(ngtcp2_frame_chain) + extralen);
@@ -58,9 +70,10 @@ int ngtcp2_frame_chain_extralen_new(ngtcp2_frame_chain **pfrc, size_t extralen,
   return 0;
 }
 
-int ngtcp2_frame_chain_stream_datacnt_new(ngtcp2_frame_chain **pfrc,
-                                          size_t datacnt,
-                                          const ngtcp2_mem *mem) {
+int ngtcp2_frame_chain_stream_datacnt_objalloc_new(ngtcp2_frame_chain **pfrc,
+                                                   size_t datacnt,
+                                                   ngtcp2_objalloc *objalloc,
+                                                   const ngtcp2_mem *mem) {
   size_t need, avail = sizeof(ngtcp2_frame) - sizeof(ngtcp2_stream);
 
   if (datacnt > 1) {
@@ -71,12 +84,13 @@ int ngtcp2_frame_chain_stream_datacnt_new(ngtcp2_frame_chain **pfrc,
     }
   }
 
-  return ngtcp2_frame_chain_new(pfrc, mem);
+  return ngtcp2_frame_chain_objalloc_new(pfrc, objalloc);
 }
 
-int ngtcp2_frame_chain_crypto_datacnt_new(ngtcp2_frame_chain **pfrc,
-                                          size_t datacnt,
-                                          const ngtcp2_mem *mem) {
+int ngtcp2_frame_chain_crypto_datacnt_objalloc_new(ngtcp2_frame_chain **pfrc,
+                                                   size_t datacnt,
+                                                   ngtcp2_objalloc *objalloc,
+                                                   const ngtcp2_mem *mem) {
   size_t need, avail = sizeof(ngtcp2_frame) - sizeof(ngtcp2_crypto);
 
   if (datacnt > 1) {
@@ -87,12 +101,13 @@ int ngtcp2_frame_chain_crypto_datacnt_new(ngtcp2_frame_chain **pfrc,
     }
   }
 
-  return ngtcp2_frame_chain_new(pfrc, mem);
+  return ngtcp2_frame_chain_objalloc_new(pfrc, objalloc);
 }
 
-int ngtcp2_frame_chain_new_token_new(ngtcp2_frame_chain **pfrc,
-                                     const ngtcp2_vec *token,
-                                     const ngtcp2_mem *mem) {
+int ngtcp2_frame_chain_new_token_objalloc_new(ngtcp2_frame_chain **pfrc,
+                                              const ngtcp2_vec *token,
+                                              ngtcp2_objalloc *objalloc,
+                                              const ngtcp2_mem *mem) {
   size_t avail = sizeof(ngtcp2_frame) - sizeof(ngtcp2_new_token);
   int rv;
   uint8_t *p;
@@ -101,7 +116,7 @@ int ngtcp2_frame_chain_new_token_new(ngtcp2_frame_chain **pfrc,
   if (token->len > avail) {
     rv = ngtcp2_frame_chain_extralen_new(pfrc, token->len - avail, mem);
   } else {
-    rv = ngtcp2_frame_chain_new(pfrc, mem);
+    rv = ngtcp2_frame_chain_objalloc_new(pfrc, objalloc);
   }
   if (rv != 0) {
     return rv;
@@ -133,19 +148,71 @@ void ngtcp2_frame_chain_del(ngtcp2_frame_chain *frc, const ngtcp2_mem *mem) {
   ngtcp2_mem_free(mem, frc);
 }
 
+void ngtcp2_frame_chain_objalloc_del(ngtcp2_frame_chain *frc,
+                                     ngtcp2_objalloc *objalloc,
+                                     const ngtcp2_mem *mem) {
+  ngtcp2_frame_chain_binder *binder;
+
+  if (frc == NULL) {
+    return;
+  }
+
+  switch (frc->fr.type) {
+  case NGTCP2_FRAME_STREAM:
+    if (frc->fr.stream.datacnt &&
+        sizeof(ngtcp2_vec) * (frc->fr.stream.datacnt - 1) >
+            sizeof(ngtcp2_frame) - sizeof(ngtcp2_stream)) {
+      ngtcp2_frame_chain_del(frc, mem);
+
+      return;
+    }
+
+    break;
+  case NGTCP2_FRAME_CRYPTO:
+    if (frc->fr.crypto.datacnt &&
+        sizeof(ngtcp2_vec) * (frc->fr.crypto.datacnt - 1) >
+            sizeof(ngtcp2_frame) - sizeof(ngtcp2_crypto)) {
+      ngtcp2_frame_chain_del(frc, mem);
+
+      return;
+    }
+
+    break;
+  case NGTCP2_FRAME_NEW_TOKEN:
+    if (frc->fr.new_token.token.len >
+        sizeof(ngtcp2_frame) - sizeof(ngtcp2_new_token)) {
+      ngtcp2_frame_chain_del(frc, mem);
+
+      return;
+    }
+
+    break;
+  }
+
+  binder = frc->binder;
+  if (binder && --binder->refcount == 0) {
+    ngtcp2_mem_free(mem, binder);
+  }
+
+  frc->binder = NULL;
+
+  ngtcp2_objalloc_frame_chain_release(objalloc, frc);
+}
+
 void ngtcp2_frame_chain_init(ngtcp2_frame_chain *frc) {
   frc->next = NULL;
   frc->binder = NULL;
 }
 
-void ngtcp2_frame_chain_list_del(ngtcp2_frame_chain *frc,
-                                 const ngtcp2_mem *mem) {
+void ngtcp2_frame_chain_list_objalloc_del(ngtcp2_frame_chain *frc,
+                                          ngtcp2_objalloc *objalloc,
+                                          const ngtcp2_mem *mem) {
   ngtcp2_frame_chain *next;
 
-  for (; frc;) {
+  for (; frc; frc = next) {
     next = frc->next;
-    ngtcp2_frame_chain_del(frc, mem);
-    frc = next;
+
+    ngtcp2_frame_chain_objalloc_del(frc, objalloc, mem);
   }
 }
 
@@ -182,35 +249,46 @@ int ngtcp2_bind_frame_chains(ngtcp2_frame_chain *a, ngtcp2_frame_chain *b,
   return 0;
 }
 
-int ngtcp2_rtb_entry_new(ngtcp2_rtb_entry **pent, const ngtcp2_pkt_hd *hd,
-                         ngtcp2_frame_chain *frc, ngtcp2_tstamp ts,
-                         size_t pktlen, uint8_t flags, const ngtcp2_mem *mem) {
-  (*pent) = ngtcp2_mem_calloc(mem, 1, sizeof(ngtcp2_rtb_entry));
+static void rtb_entry_init(ngtcp2_rtb_entry *ent, const ngtcp2_pkt_hd *hd,
+                           ngtcp2_frame_chain *frc, ngtcp2_tstamp ts,
+                           size_t pktlen, uint8_t flags) {
+  memset(ent, 0, sizeof(*ent));
+
+  ent->hd.pkt_num = hd->pkt_num;
+  ent->hd.type = hd->type;
+  ent->hd.flags = hd->flags;
+  ent->frc = frc;
+  ent->ts = ts;
+  ent->lost_ts = UINT64_MAX;
+  ent->pktlen = pktlen;
+  ent->flags = flags;
+  ent->next = NULL;
+}
+
+int ngtcp2_rtb_entry_objalloc_new(ngtcp2_rtb_entry **pent,
+                                  const ngtcp2_pkt_hd *hd,
+                                  ngtcp2_frame_chain *frc, ngtcp2_tstamp ts,
+                                  size_t pktlen, uint8_t flags,
+                                  ngtcp2_objalloc *objalloc) {
+  *pent = ngtcp2_objalloc_rtb_entry_get(objalloc);
   if (*pent == NULL) {
     return NGTCP2_ERR_NOMEM;
   }
 
-  (*pent)->hd.pkt_num = hd->pkt_num;
-  (*pent)->hd.type = hd->type;
-  (*pent)->hd.flags = hd->flags;
-  (*pent)->frc = frc;
-  (*pent)->ts = ts;
-  (*pent)->lost_ts = UINT64_MAX;
-  (*pent)->pktlen = pktlen;
-  (*pent)->flags = flags;
-  (*pent)->next = NULL;
+  rtb_entry_init(*pent, hd, frc, ts, pktlen, flags);
 
   return 0;
 }
 
-void ngtcp2_rtb_entry_del(ngtcp2_rtb_entry *ent, const ngtcp2_mem *mem) {
-  if (ent == NULL) {
-    return;
-  }
+void ngtcp2_rtb_entry_objalloc_del(ngtcp2_rtb_entry *ent,
+                                   ngtcp2_objalloc *objalloc,
+                                   ngtcp2_objalloc *frc_objalloc,
+                                   const ngtcp2_mem *mem) {
+  ngtcp2_frame_chain_list_objalloc_del(ent->frc, frc_objalloc, mem);
 
-  ngtcp2_frame_chain_list_del(ent->frc, mem);
+  ent->frc = NULL;
 
-  ngtcp2_mem_free(mem, ent);
+  ngtcp2_objalloc_rtb_entry_release(objalloc, ent);
 }
 
 static int greater(const ngtcp2_ksl_key *lhs, const ngtcp2_ksl_key *rhs) {
@@ -220,7 +298,10 @@ static int greater(const ngtcp2_ksl_key *lhs, const ngtcp2_ksl_key *rhs) {
 void ngtcp2_rtb_init(ngtcp2_rtb *rtb, ngtcp2_pktns_id pktns_id,
                      ngtcp2_strm *crypto, ngtcp2_rst *rst, ngtcp2_cc *cc,
                      ngtcp2_log *log, ngtcp2_qlog *qlog,
-                     const ngtcp2_mem *mem) {
+                     ngtcp2_objalloc *rtb_entry_objalloc,
+                     ngtcp2_objalloc *frc_objalloc, const ngtcp2_mem *mem) {
+  rtb->rtb_entry_objalloc = rtb_entry_objalloc;
+  rtb->frc_objalloc = frc_objalloc;
   ngtcp2_ksl_init(&rtb->ents, greater, sizeof(int64_t), mem);
   rtb->crypto = crypto;
   rtb->rst = rst;
@@ -249,7 +330,9 @@ void ngtcp2_rtb_free(ngtcp2_rtb *rtb) {
   it = ngtcp2_ksl_begin(&rtb->ents);
 
   for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
-    ngtcp2_rtb_entry_del(ngtcp2_ksl_it_get(&it), rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ngtcp2_ksl_it_get(&it),
+                                  rtb->rtb_entry_objalloc, rtb->frc_objalloc,
+                                  rtb->mem);
   }
 
   ngtcp2_ksl_free(&rtb->ents);
@@ -354,8 +437,8 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
         }
       }
 
-      rv = ngtcp2_frame_chain_stream_datacnt_new(&nfrc, fr->stream.datacnt,
-                                                 rtb->mem);
+      rv = ngtcp2_frame_chain_stream_datacnt_objalloc_new(
+          &nfrc, fr->stream.datacnt, rtb->frc_objalloc, rtb->mem);
       if (rv != 0) {
         return rv;
       }
@@ -366,7 +449,7 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
 
       rv = ngtcp2_strm_streamfrq_push(strm, nfrc);
       if (rv != 0) {
-        ngtcp2_frame_chain_del(nfrc, conn->mem);
+        ngtcp2_frame_chain_objalloc_del(nfrc, rtb->frc_objalloc, rtb->mem);
         return rv;
       }
       if (!ngtcp2_strm_is_tx_queued(strm)) {
@@ -393,8 +476,8 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
         continue;
       }
 
-      rv = ngtcp2_frame_chain_crypto_datacnt_new(&nfrc, fr->crypto.datacnt,
-                                                 rtb->mem);
+      rv = ngtcp2_frame_chain_crypto_datacnt_objalloc_new(
+          &nfrc, fr->crypto.datacnt, rtb->frc_objalloc, rtb->mem);
       if (rv != 0) {
         return rv;
       }
@@ -407,7 +490,7 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
                              &nfrc->fr.crypto.offset, nfrc);
       if (rv != 0) {
         assert(ngtcp2_err_is_fatal(rv));
-        ngtcp2_frame_chain_del(nfrc, conn->mem);
+        ngtcp2_frame_chain_objalloc_del(nfrc, rtb->frc_objalloc, rtb->mem);
         return rv;
       }
 
@@ -415,8 +498,8 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
 
       continue;
     case NGTCP2_FRAME_NEW_TOKEN:
-      rv = ngtcp2_frame_chain_new_token_new(&nfrc, &fr->new_token.token,
-                                            rtb->mem);
+      rv = ngtcp2_frame_chain_new_token_objalloc_new(
+          &nfrc, &fr->new_token.token, rtb->frc_objalloc, rtb->mem);
       if (rv != 0) {
         return rv;
       }
@@ -431,7 +514,7 @@ static ngtcp2_ssize rtb_reclaim_frame(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
     case NGTCP2_FRAME_DATAGRAM_LEN:
       continue;
     default:
-      rv = ngtcp2_frame_chain_new(&nfrc, rtb->mem);
+      rv = ngtcp2_frame_chain_objalloc_new(&nfrc, rtb->frc_objalloc);
       if (rv != 0) {
         return rv;
       }
@@ -563,7 +646,8 @@ static int rtb_on_pkt_lost(ngtcp2_rtb *rtb, ngtcp2_ksl_it *it,
   rv = ngtcp2_ksl_remove_hint(&rtb->ents, it, it, &ent->hd.pkt_num);
   assert(0 == rv);
 
-  ngtcp2_rtb_entry_del(ent, rtb->mem);
+  ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc, rtb->frc_objalloc,
+                                rtb->mem);
 
   return 0;
 }
@@ -730,8 +814,8 @@ static int rtb_process_acked_pkt(ngtcp2_rtb *rtb, ngtcp2_rtb_entry *ent,
       }
       break;
     case NGTCP2_FRAME_RETIRE_CONNECTION_ID:
-      assert(conn->dcid.num_retire_queued);
-      --conn->dcid.num_retire_queued;
+      ngtcp2_conn_untrack_retired_dcid_seq(conn,
+                                           frc->fr.retire_connection_id.seq);
       break;
     case NGTCP2_FRAME_DATAGRAM:
     case NGTCP2_FRAME_DATAGRAM_LEN:
@@ -840,8 +924,10 @@ ngtcp2_ssize ngtcp2_rtb_recv_ack(ngtcp2_rtb *rtb, const ngtcp2_ack *fr,
   cc_ack.rtt = UINT64_MAX;
 
   if (conn && (conn->flags & NGTCP2_CONN_FLAG_KEY_UPDATE_NOT_CONFIRMED) &&
+      (conn->flags & NGTCP2_CONN_FLAG_KEY_UPDATE_INITIATOR) &&
       largest_ack >= conn->pktns.crypto.tx.ckm->pkt_num) {
-    conn->flags &= (uint16_t)~NGTCP2_CONN_FLAG_KEY_UPDATE_NOT_CONFIRMED;
+    conn->flags &= (uint32_t) ~(NGTCP2_CONN_FLAG_KEY_UPDATE_NOT_CONFIRMED |
+                                NGTCP2_CONN_FLAG_KEY_UPDATE_INITIATOR);
     conn->crypto.key_update.confirmed_ts = ts;
 
     ngtcp2_log_info(rtb->log, NGTCP2_LOG_EVENT_CRY, "key update confirmed");
@@ -949,7 +1035,8 @@ ngtcp2_ssize ngtcp2_rtb_recv_ack(ngtcp2_rtb *rtb, const ngtcp2_ack *fr,
 
       rtb_on_pkt_acked(rtb, ent, cstat, ts);
       acked_ent = ent->next;
-      ngtcp2_rtb_entry_del(ent, rtb->mem);
+      ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                    rtb->frc_objalloc, rtb->mem);
     }
 
     if (verify_ecn) {
@@ -961,7 +1048,8 @@ ngtcp2_ssize ngtcp2_rtb_recv_ack(ngtcp2_rtb *rtb, const ngtcp2_ack *fr,
     for (ent = acked_ent; ent; ent = acked_ent) {
       rtb_on_pkt_acked(rtb, ent, cstat, ts);
       acked_ent = ent->next;
-      ngtcp2_rtb_entry_del(ent, rtb->mem);
+      ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                    rtb->frc_objalloc, rtb->mem);
     }
   }
 
@@ -989,7 +1077,8 @@ ngtcp2_ssize ngtcp2_rtb_recv_ack(ngtcp2_rtb *rtb, const ngtcp2_ack *fr,
 fail:
   for (ent = acked_ent; ent; ent = acked_ent) {
     acked_ent = ent->next;
-    ngtcp2_rtb_entry_del(ent, rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                  rtb->frc_objalloc, rtb->mem);
   }
 
   return rv;
@@ -1217,7 +1306,8 @@ void ngtcp2_rtb_remove_excessive_lost_pkt(ngtcp2_rtb *rtb, size_t n) {
     --rtb->num_lost_pkts;
     rv = ngtcp2_ksl_remove_hint(&rtb->ents, &it, &it, &ent->hd.pkt_num);
     assert(0 == rv);
-    ngtcp2_rtb_entry_del(ent, rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                  rtb->frc_objalloc, rtb->mem);
   }
 }
 
@@ -1251,7 +1341,8 @@ void ngtcp2_rtb_remove_expired_lost_pkt(ngtcp2_rtb *rtb, ngtcp2_duration pto,
     --rtb->num_lost_pkts;
     rv = ngtcp2_ksl_remove_hint(&rtb->ents, &it, &it, &ent->hd.pkt_num);
     assert(0 == rv);
-    ngtcp2_rtb_entry_del(ent, rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                  rtb->frc_objalloc, rtb->mem);
 
     if (ngtcp2_ksl_len(&rtb->ents) == 0) {
       return;
@@ -1339,12 +1430,12 @@ static int rtb_on_pkt_lost_resched_move(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
 
       strm = ngtcp2_conn_find_stream(conn, sfr->stream_id);
       if (!strm) {
-        ngtcp2_frame_chain_del(frc, conn->mem);
+        ngtcp2_frame_chain_objalloc_del(frc, rtb->frc_objalloc, rtb->mem);
         break;
       }
       rv = ngtcp2_strm_streamfrq_push(strm, frc);
       if (rv != 0) {
-        ngtcp2_frame_chain_del(frc, conn->mem);
+        ngtcp2_frame_chain_objalloc_del(frc, rtb->frc_objalloc, rtb->mem);
         return rv;
       }
       if (!ngtcp2_strm_is_tx_queued(strm)) {
@@ -1365,7 +1456,7 @@ static int rtb_on_pkt_lost_resched_move(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
                              &frc->fr.crypto.offset, frc);
       if (rv != 0) {
         assert(ngtcp2_err_is_fatal(rv));
-        ngtcp2_frame_chain_del(frc, conn->mem);
+        ngtcp2_frame_chain_objalloc_del(frc, rtb->frc_objalloc, rtb->mem);
         return rv;
       }
       break;
@@ -1383,7 +1474,7 @@ static int rtb_on_pkt_lost_resched_move(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
 
       *pfrc = (*pfrc)->next;
 
-      ngtcp2_frame_chain_del(frc, conn->mem);
+      ngtcp2_frame_chain_objalloc_del(frc, rtb->frc_objalloc, rtb->mem);
       break;
     default:
       pfrc = &(*pfrc)->next;
@@ -1413,7 +1504,8 @@ int ngtcp2_rtb_remove_all(ngtcp2_rtb *rtb, ngtcp2_conn *conn,
     assert(0 == rv);
 
     rv = rtb_on_pkt_lost_resched_move(rtb, conn, pktns, ent);
-    ngtcp2_rtb_entry_del(ent, rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                  rtb->frc_objalloc, rtb->mem);
     if (rv != 0) {
       return rv;
     }
@@ -1442,7 +1534,8 @@ void ngtcp2_rtb_remove_early_data(ngtcp2_rtb *rtb, ngtcp2_conn_stat *cstat) {
     rv = ngtcp2_ksl_remove_hint(&rtb->ents, &it, &it, &ent->hd.pkt_num);
     assert(0 == rv);
 
-    ngtcp2_rtb_entry_del(ent, rtb->mem);
+    ngtcp2_rtb_entry_objalloc_del(ent, rtb->rtb_entry_objalloc,
+                                  rtb->frc_objalloc, rtb->mem);
   }
 }
 
