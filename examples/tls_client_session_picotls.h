@@ -1,7 +1,7 @@
 /*
  * ngtcp2
  *
- * Copyright (c) 2021 ngtcp2 contributors
+ * Copyright (c) 2022 ngtcp2 contributors
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,23 +22,34 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "util.h"
+#ifndef TLS_CLIENT_SESSION_PICOTLS_H
+#define TLS_CLIENT_SESSION_PICOTLS_H
 
-#include <ngtcp2/ngtcp2_crypto.h>
+#ifdef HAVE_CONFIG_H
+#  include <config.h>
+#endif // HAVE_CONFIG_H
 
-#include <openssl/evp.h>
+#include "tls_session_base_picotls.h"
+#include "shared.h"
 
-namespace ngtcp2 {
+using namespace ngtcp2;
 
-namespace util {
+class TLSClientContext;
+class ClientBase;
 
-ngtcp2_crypto_aead crypto_aead_aes_128_gcm() {
-  ngtcp2_crypto_aead aead;
-  ngtcp2_crypto_aead_init(&aead,
-                          const_cast<EVP_AEAD *>(EVP_aead_aes_128_gcm()));
-  return aead;
-}
+class TLSClientSession : public TLSSessionBase {
+public:
+  TLSClientSession();
+  ~TLSClientSession();
 
-} // namespace util
+  int init(bool &early_data_enabled, TLSClientContext &tls_ctx,
+           const char *remote_addr, ClientBase *client, uint32_t quic_version,
+           AppProtocol app_proto);
 
-} // namespace ngtcp2
+  bool get_early_data_accepted() const;
+
+private:
+  size_t max_early_data_size_;
+};
+
+#endif // TLS_CLIENT_SESSION_PICOTLS_H

@@ -121,19 +121,6 @@ int write_token(const std::string_view &filename, const uint8_t *token,
   return 0;
 }
 
-ngtcp2_crypto_aead crypto_aead_aes_128_gcm() {
-  ngtcp2_crypto_aead aead;
-  ngtcp2_crypto_aead_init(&aead,
-                          reinterpret_cast<void *>(GNUTLS_CIPHER_AES_128_GCM));
-  return aead;
-}
-
-ngtcp2_crypto_md crypto_md_sha256() {
-  ngtcp2_crypto_md md;
-  ngtcp2_crypto_md_init(&md, reinterpret_cast<void *>(GNUTLS_DIG_SHA256));
-  return md;
-}
-
 const char *crypto_default_ciphers() {
   return "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
          "+CHACHA20-POLY1305:+AES-128-CCM";

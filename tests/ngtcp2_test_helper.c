@@ -345,7 +345,7 @@ ngtcp2_strm *open_stream(ngtcp2_conn *conn, int64_t stream_id) {
   int rv;
   (void)rv;
 
-  strm = ngtcp2_mem_malloc(conn->mem, sizeof(ngtcp2_strm));
+  strm = ngtcp2_objalloc_strm_get(&conn->strm_objalloc);
   assert(strm);
 
   rv = ngtcp2_conn_init_stream(conn, strm, stream_id, NULL);
@@ -392,9 +392,9 @@ uint64_t read_pkt_payloadlen(const uint8_t *pkt, const ngtcp2_cid *dcid,
 
 void write_pkt_payloadlen(uint8_t *pkt, const ngtcp2_cid *dcid,
                           const ngtcp2_cid *scid, uint64_t payloadlen) {
-  assert(payloadlen < 16384);
-  ngtcp2_put_varint14(&pkt[1 + 4 + 1 + dcid->datalen + 1 + scid->datalen],
-                      (uint16_t)payloadlen);
+  assert(payloadlen < 1073741824);
+  ngtcp2_put_varint30(&pkt[1 + 4 + 1 + dcid->datalen + 1 + scid->datalen],
+                      (uint32_t)payloadlen);
 }
 
 ngtcp2_ssize pkt_decode_hd_long(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
@@ -403,7 +403,8 @@ ngtcp2_ssize pkt_decode_hd_long(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
   ngtcp2_ssize nread;
 
   nread = ngtcp2_pkt_decode_hd_long(dest, pkt, pktlen);
-  if (nread < 0 || dest->type == NGTCP2_PKT_VERSION_NEGOTIATION) {
+  if (nread < 0 || (!(dest->flags & NGTCP2_PKT_FLAG_LONG_FORM) &&
+                    dest->type == NGTCP2_PKT_VERSION_NEGOTIATION)) {
     return nread;
   }
 
@@ -485,7 +486,7 @@ ngtcp2_ssize pkt_decode_hd_short_mask(ngtcp2_pkt_hd *dest, const uint8_t *pkt,
   return nread + (ngtcp2_ssize)dest->pkt_numlen;
 }
 
-static void addr_init(struct sockaddr_in *dest, uint32_t addr, uint16_t port) {
+static void addr_init(ngtcp2_sockaddr_in *dest, uint32_t addr, uint16_t port) {
   memset(dest, 0, sizeof(*dest));
 
   dest->sin_family = AF_INET;
@@ -496,11 +497,11 @@ static void addr_init(struct sockaddr_in *dest, uint32_t addr, uint16_t port) {
 void path_init(ngtcp2_path_storage *path, uint32_t local_addr,
                uint16_t local_port, uint32_t remote_addr,
                uint16_t remote_port) {
-  struct sockaddr_in la, ra;
+  ngtcp2_sockaddr_in la, ra;
 
   addr_init(&la, local_addr, local_port);
   addr_init(&ra, remote_addr, remote_port);
 
-  ngtcp2_path_storage_init(path, (struct sockaddr *)&la, sizeof(la),
-                           (struct sockaddr *)&ra, sizeof(ra), NULL);
+  ngtcp2_path_storage_init(path, (ngtcp2_sockaddr *)&la, sizeof(la),
+                           (ngtcp2_sockaddr *)&ra, sizeof(ra), NULL);
 }

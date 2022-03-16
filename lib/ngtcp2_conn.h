@@ -147,8 +147,13 @@ void ngtcp2_path_challenge_entry_init(ngtcp2_path_challenge_entry *pcent,
 
 /* NGTCP2_CONN_FLAG_NONE indicates that no flag is set. */
 #define NGTCP2_CONN_FLAG_NONE 0x00
-/* NGTCP2_CONN_FLAG_HANDSHAKE_COMPLETED is set if handshake
-   completed. */
+/* NGTCP2_CONN_FLAG_HANDSHAKE_COMPLETED is set when TLS stack declares
+   that TLS handshake has completed.  The condition of this
+   declaration varies between TLS implementations and this flag does
+   not indicate the completion of QUIC handshake.  Some
+   implementations declare TLS handshake completion as server when
+   they write off Server Finished and before deriving application rx
+   secret. */
 #define NGTCP2_CONN_FLAG_HANDSHAKE_COMPLETED 0x01
 /* NGTCP2_CONN_FLAG_CONN_ID_NEGOTIATED is set if connection ID is
    negotiated.  This is only used for client. */
@@ -201,6 +206,9 @@ void ngtcp2_path_challenge_entry_init(ngtcp2_path_challenge_entry *pcent,
    installed.  conn->early.ckm cannot be used for this purpose because
    it might be discarded when a certain condition is met. */
 #define NGTCP2_CONN_FLAG_EARLY_KEY_INSTALLED 0x8000
+/* NGTCP2_CONN_FLAG_KEY_UPDATE_INITIATOR is set when the local
+   endpoint has initiated key update. */
+#define NGTCP2_CONN_FLAG_KEY_UPDATE_INITIATOR 0x10000
 
 typedef struct ngtcp2_crypto_data {
   ngtcp2_buf buf;
@@ -325,7 +333,21 @@ typedef enum ngtcp2_ecn_state {
   NGTCP2_ECN_STATE_CAPABLE,
 } ngtcp2_ecn_state;
 
+ngtcp2_static_ringbuf_def(dcid_bound, NGTCP2_MAX_BOUND_DCID_POOL_SIZE,
+                          sizeof(ngtcp2_dcid));
+ngtcp2_static_ringbuf_def(dcid_unused, NGTCP2_MAX_DCID_POOL_SIZE,
+                          sizeof(ngtcp2_dcid));
+ngtcp2_static_ringbuf_def(dcid_retired, NGTCP2_MAX_DCID_RETIRED_SIZE,
+                          sizeof(ngtcp2_dcid));
+ngtcp2_static_ringbuf_def(path_challenge, 4,
+                          sizeof(ngtcp2_path_challenge_entry));
+
+ngtcp2_objalloc_def(strm, ngtcp2_strm, oplent);
+
 struct ngtcp2_conn {
+  ngtcp2_objalloc frc_objalloc;
+  ngtcp2_objalloc rtb_entry_objalloc;
+  ngtcp2_objalloc strm_objalloc;
   ngtcp2_conn_state state;
   ngtcp2_callbacks callbacks;
   /* rcid is a connection ID present in Initial or 0-RTT packet from
@@ -350,21 +372,25 @@ struct ngtcp2_conn {
     ngtcp2_dcid current;
     /* bound is a set of destination connection IDs which are bound to
        particular paths.  These paths are not validated yet. */
-    ngtcp2_ringbuf bound;
+    ngtcp2_static_ringbuf_dcid_bound bound;
     /* unused is a set of unused CID received from peer. */
-    ngtcp2_ringbuf unused;
+    ngtcp2_static_ringbuf_dcid_unused unused;
     /* retired is a set of CID retired by local endpoint.  Keep them
        in 3*PTO to catch packets in flight along the old path. */
-    ngtcp2_ringbuf retired;
+    ngtcp2_static_ringbuf_dcid_retired retired;
     /* seqgap tracks received sequence numbers in order to ignore
        retransmitted duplicated NEW_CONNECTION_ID frame. */
     ngtcp2_gaptr seqgap;
     /* retire_prior_to is the largest retire_prior_to received so
        far. */
     uint64_t retire_prior_to;
-    /* num_retire_queued is the number of RETIRE_CONNECTION_ID frames
-       queued for transmission. */
-    size_t num_retire_queued;
+    struct {
+      /* seqs contains sequence number of Connection ID whose
+         retirement is not acknowledged by the remote endpoint yet. */
+      uint64_t seqs[NGTCP2_MAX_DCID_POOL_SIZE * 2];
+      /* len is the number of sequence numbers that seq contains. */
+      size_t len;
+    } retire_unacked;
     /* zerolen_seq is a pseudo sequence number of zero-length
        Destination Connection ID in order to distinguish between
        them. */
@@ -440,7 +466,7 @@ struct ngtcp2_conn {
     /* window is the connection-level flow control window size. */
     uint64_t window;
     /* path_challenge stores received PATH_CHALLENGE data. */
-    ngtcp2_ringbuf path_challenge;
+    ngtcp2_static_ringbuf_path_challenge path_challenge;
     /* ccerr is the received connection close error. */
     ngtcp2_connection_close_error ccerr;
   } rx;
@@ -603,7 +629,7 @@ struct ngtcp2_conn {
   void *user_data;
   uint32_t version;
   /* flags is bitwise OR of zero or more of NGTCP2_CONN_FLAG_*. */
-  uint16_t flags;
+  uint32_t flags;
   int server;
 };
 
@@ -873,5 +899,24 @@ void ngtcp2_conn_cancel_expired_ack_delay_timer(ngtcp2_conn *conn,
 ngtcp2_tstamp ngtcp2_conn_loss_detection_expiry(ngtcp2_conn *conn);
 
 ngtcp2_duration ngtcp2_conn_compute_pto(ngtcp2_conn *conn, ngtcp2_pktns *pktns);
+
+/*
+ * ngtcp2_conn_track_retired_dcid_seq tracks the sequence number |seq|
+ * of unacknowledged retiring Destination Connection ID.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * NGTCP2_ERR_CONNECTION_ID_LIMIT
+ *     The number of unacknowledged retirement exceeds the limit.
+ */
+int ngtcp2_conn_track_retired_dcid_seq(ngtcp2_conn *conn, uint64_t seq);
+
+/*
+ * ngtcp2_conn_untrack_retired_dcid_seq deletes the sequence number
+ * |seq| of unacknowledged retiring Destination Connection ID.  It is
+ * fine if such sequence number is not found.
+ */
+void ngtcp2_conn_untrack_retired_dcid_seq(ngtcp2_conn *conn, uint64_t seq);
 
 #endif /* NGTCP2_CONN_H */

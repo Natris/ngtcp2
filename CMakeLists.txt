@@ -27,20 +27,20 @@ cmake_minimum_required(VERSION 3.1)
 # Allow setting VISIBILITY_PRESET on static library targets without warning.
 cmake_policy(SET CMP0063 NEW)
 
-# XXX using 0.1.90 instead of 0.1.0-DEV
-project(ngtcp2 VERSION 0.1.0)
+# XXX using 0.1.90 instead of 0.2.0-DEV
+project(ngtcp2 VERSION 0.2.1)
 
 # See versioning rule:
 #  https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-set(LT_CURRENT  0)
-set(LT_REVISION 0)
+set(LT_CURRENT  1)
+set(LT_REVISION 1)
 set(LT_AGE      0)
 
-set(CRYPTO_OPENSSL_LT_CURRENT 0)
+set(CRYPTO_OPENSSL_LT_CURRENT 1)
 set(CRYPTO_OPENSSL_LT_REVISION 0)
 set(CRYPTO_OPENSSL_LT_AGE 0)
 
-set(CRYPTO_GNUTLS_LT_CURRENT 0)
+set(CRYPTO_GNUTLS_LT_CURRENT 1)
 set(CRYPTO_GNUTLS_LT_REVISION 0)
 set(CRYPTO_GNUTLS_LT_AGE 0)
 
@@ -101,10 +101,15 @@ if(HAVE_CUNIT)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 endif()
 
-# OpenSSL (required for libngtcp2_crypto_openssl and examples)
+# OpenSSL (required for libngtcp2_crypto_openssl,
+# libngtcp2_crypto_picotls and examples)
 include(CMakePushCheckState)
 include(CheckSymbolExists)
 if(ENABLE_OPENSSL AND OPENSSL_FOUND)
+  set(VANILLA_OPENSSL_INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR})
+  set(VANILLA_OPENSSL_LIBRARIES ${OPENSSL_LIBRARIES})
+  set(HAVE_VANILLA_OPENSSL TRUE)
+
   # Until OpenSSL gains mainline support for QUIC, check for a patched version.
   cmake_push_check_state()
   set(CMAKE_REQUIRED_INCLUDES   "${OPENSSL_INCLUDE_DIR}")
@@ -160,6 +165,28 @@ else()
   set(HAVE_GNUTLS FALSE)
   set(GNUTLS_INCLUDE_DIRS  "")
   set(GNUTLS_LIBRARIES     "")
+endif()
+
+# Picotls (required for libngtcp2_crypto_picotls)
+if(ENABLE_PICOTLS)
+  cmake_push_check_state()
+  set(CMAKE_REQUIRED_INCLUDES   "${PICOTLS_INCLUDE_DIR}" "${VANILLA_OPENSSL_INCLUDE_DIRS}")
+  set(CMAKE_REQUIRED_LIBRARIES  "${PICOTLS_LIBRARIES}" "${VANILLA_OPENSSL_LIBRARIES}")
+  check_symbol_exists(ptls_openssl_random_bytes "picotls.h;picotls/openssl.h"
+    HAVE_PTLS_OPENSSL_RANDOM_BYTES)
+  if(NOT HAVE_PTLS_OPENSSL_RANDOM_BYTES)
+    message(WARNING "Disabling Picotls because ptls_openssl_random_bytes not found in ${CMAKE_REQUIRED_LIBRARIES}")
+  endif()
+  cmake_pop_check_state()
+endif()
+if(ENABLE_PICOTLS AND HAVE_PTLS_OPENSSL_RANDOM_BYTES)
+  set(PICOTLS_INCLUDE_DIRS  ${PICOTLS_INCLUDE_DIR})
+  set(HAVE_PICOTLS TRUE)
+  set(HAVE_CRYPTO TRUE)
+else()
+  set(HAVE_PICOTLS FALSE)
+  set(PICOTLS_INCLUDE_DIRS  "")
+  set(PICOTLS_LIBRARIES     "")
 endif()
 
 # Checks for header files.
@@ -365,4 +392,5 @@ message(STATUS "summary of build options:
       Libnghttp3:     ${HAVE_LIBNGHTTP3} (LIBS='${LIBNGHTTP3_LIBRARIES}')
       GnuTLS:         ${HAVE_GNUTLS} (LIBS='${GNUTLS_LIBRARIES}')
       BoringSSL:      ${HAVE_BORINGSSL} (LIBS='${BORINGSSL_LIBRARIES}')
+      Picotls:        ${HAVE_PICOTLS} (LIBS='${PICOTLS_LIBRARIES}')
 ")

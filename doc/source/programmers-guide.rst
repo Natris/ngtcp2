@@ -7,11 +7,9 @@ describes a brief introduction of programming ngtcp2.
 Prerequisites
 -------------
 
-Reading `QUIC transport
-<https://datatracker.ietf.org/doc/html/rfc9000>`_ and `QUIC TLS
-<https://datatracker.ietf.org/doc/html/rfc9001>`_ documents helps you
-a lot to write QUIC application.  They describes how TLS is integrated
-into QUIC and why the existing TLS stack cannot be used with QUIC.
+Reading :rfc:`9000` and :rfc:`9001` helps you a lot to write QUIC
+application.  They describes how TLS is integrated into QUIC and why
+the existing TLS stack cannot be used with QUIC.
 
 QUIC requires the special interface from TLS stack, which is probably
 not available from most of the existing TLS stacks.  As far as I know,
@@ -25,6 +23,7 @@ for which we provide crypto helper libraries:
   <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1m+quic>`_
 * GnuTLS >= 3.7.2
 * BoringSSL
+* Picotls
 
 Creating ngtcp2_conn object
 ---------------------------
@@ -285,17 +284,14 @@ Error handling in general
 -------------------------
 
 In general, when error is returned from the ngtcp2 library function,
-just close QUIC connection.
-
-If `ngtcp2_err_is_fatal()` returns true with the returned error code,
-:type:`ngtcp2_conn` object must be deleted with `ngtcp2_conn_del()`
-without any ngtcp2 library functions.  Otherwise, call
-`ngtcp2_conn_write_connection_close()` to get terminal packet.
+call `ngtcp2_conn_write_connection_close()` or
+`ngtcp2_conn_write_application_close()` to get terminal packet.
 Sending it finishes QUIC connection.
 
 If :macro:`NGTCP2_ERR_DROP_CONN` is returned from
 `ngtcp2_conn_read_pkt`, a connection should be dropped without calling
-`ngtcp2_conn_write_connection_close()`.
+`ngtcp2_conn_write_connection_close()` or
+`ngtcp2_conn_write_application_close()`.
 
 The following error codes must be considered as transitional, and
 application should keep connection alive:

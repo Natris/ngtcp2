@@ -112,7 +112,7 @@ public:
   int init(const Endpoint &ep, const Address &local_addr, const sockaddr *sa,
            socklen_t salen, const ngtcp2_cid *dcid, const ngtcp2_cid *scid,
            const ngtcp2_cid *ocid, const uint8_t *token, size_t tokenlen,
-           uint32_t version, const TLSServerContext &tls_ctx);
+           uint32_t version, TLSServerContext &tls_ctx);
 
   int on_read(const Endpoint &ep, const Address &local_addr, const sockaddr *sa,
               socklen_t salen, const ngtcp2_pkt_info *pi, uint8_t *data,
@@ -168,7 +168,13 @@ public:
   void reset_idle_timer();
 
   void write_qlog(const void *data, size_t datalen);
-  void singal_write();
+
+  void on_send_blocked(Endpoint &ep, const ngtcp2_addr &local_addr,
+                       const ngtcp2_addr &remote_addr, unsigned int ecn,
+                       const uint8_t *data, size_t datalen,
+                       size_t max_udp_payload_size);
+  void start_wev_endpoint(const Endpoint &ep);
+  int send_blocked_packet();
 
 private:
   struct ev_loop *loop_;
@@ -188,11 +194,28 @@ private:
   size_t nkey_update_;
   // draining_ becomes true when draining period starts.
   bool draining_;
+
+  struct {
+    bool send_blocked;
+    size_t num_blocked;
+    size_t num_blocked_sent;
+    // blocked field is effective only when send_blocked is true.
+    struct {
+      Endpoint *endpoint;
+      Address local_addr;
+      Address remote_addr;
+      unsigned int ecn;
+      const uint8_t *data;
+      size_t datalen;
+      size_t max_udp_payload_size;
+    } blocked[2];
+    std::unique_ptr<uint8_t[]> data;
+  } tx_;
 };
 
 class Server {
 public:
-  Server(struct ev_loop *loop, const TLSServerContext &tls_ctx);
+  Server(struct ev_loop *loop, TLSServerContext &tls_ctx);
   ~Server();
 
   int init(const char *addr, const char *port);
@@ -227,7 +250,7 @@ private:
   std::unordered_map<std::string, Handler *> handlers_;
   struct ev_loop *loop_;
   std::vector<Endpoint> endpoints_;
-  const TLSServerContext &tls_ctx_;
+  TLSServerContext &tls_ctx_;
   ev_signal sigintev_;
 };
 

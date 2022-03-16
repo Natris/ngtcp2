@@ -92,7 +92,7 @@ server_SOURCES = server.cc server.h ${SERVER_SRCS} \
 	tls_server_context_openssl.cc tls_server_context_openssl.h \
 	tls_server_session_openssl.cc tls_server_session_openssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
-	util_openssl.cc util_aead_openssl.cc
+	util_openssl.cc
 
 h09client_CPPFLAGS = ${client_CPPFLAGS}
 h09client_LDADD = ${client_LDADD}
@@ -108,11 +108,19 @@ h09server_SOURCES = h09server.cc h09server.h ${SERVER_SRCS} \
 	tls_server_context_openssl.cc tls_server_context_openssl.h \
 	tls_server_session_openssl.cc tls_server_session_openssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
-	util_openssl.cc util_aead_openssl.cc
+	util_openssl.cc
 endif # ENABLE_EXAMPLE_OPENSSL
 
 if ENABLE_EXAMPLE_GNUTLS
-noinst_PROGRAMS += gtlsclient gtlsserver
+noinst_PROGRAMS += gtlsclient gtlsserver gtlssimpleclient
+
+gtlssimpleclient_CPPFLAGS = ${AM_CPPFLAGS} \
+	@JEMALLOC_CFLAGS@ @GNUTLS_CFLAGS@ -DWITH_EXAMPLE_OPENSSL
+gtlssimpleclient_LDADD = ${LDADD} \
+	$(top_builddir)/crypto/gnutls/libngtcp2_crypto_gnutls.la \
+	@GNUTLS_LIBS@ \
+	@JEMALLOC_LIBS@
+gtlssimpleclient_SOURCES = gtlssimpleclient.c
 
 gtlsclient_CPPFLAGS = ${AM_CPPFLAGS} \
 	@JEMALLOC_CFLAGS@ @GNUTLS_CFLAGS@ -DWITH_EXAMPLE_GNUTLS
@@ -156,8 +164,31 @@ bsslserver_SOURCES = server.cc server.h ${SERVER_SRCS} \
 	tls_server_context_boringssl.cc tls_server_context_boringssl.h \
 	tls_server_session_boringssl.cc tls_server_session_boringssl.h \
 	tls_session_base_openssl.cc tls_session_base_openssl.h \
-	util_openssl.cc util_aead_boringssl.cc
+	util_openssl.cc
 endif # ENABLE_EXAMPLE_BORINGSSL
+
+if ENABLE_EXAMPLE_PICOTLS
+noinst_PROGRAMS += ptlsclient ptlsserver
+
+ptlsclient_CPPFLAGS = ${AM_CPPFLAGS} @PICOTLS_CFLAGS@ @VANILLA_OPENSSL_CFLAGS@ \
+	-DWITH_EXAMPLE_PICOTLS
+ptlsclient_LDADD = ${LDADD} \
+	$(top_builddir)/crypto/picotls/libngtcp2_crypto_picotls.a \
+	@PICOTLS_LIBS@ @VANILLA_OPENSSL_LIBS@
+ptlsclient_SOURCES = client.cc client.h ${CLIENT_SRCS} \
+	tls_client_context_picotls.cc tls_client_context_picotls.h \
+	tls_client_session_picotls.cc tls_client_session_picotls.h \
+	tls_session_base_picotls.cc tls_session_base_picotls.h \
+	util_openssl.cc
+
+ptlsserver_CPPFLAGS = ${ptlsclient_CPPFLAGS}
+ptlsserver_LDADD = ${ptlsclient_LDADD}
+ptlsserver_SOURCES = server.cc server.h ${SERVER_SRCS} \
+	tls_server_context_picotls.cc tls_server_context_picotls.h \
+	tls_server_session_picotls.cc tls_server_session_picotls.h \
+	tls_session_base_picotls.cc tls_session_base_picotls.h \
+	util_openssl.cc
+endif # ENABLE_EXAMPLE_PICOTLS
 
 if HAVE_CUNIT
 check_PROGRAMS = examplestest

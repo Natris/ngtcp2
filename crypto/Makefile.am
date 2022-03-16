@@ -38,4 +38,8 @@ if HAVE_BORINGSSL
 SUBDIRS += boringssl
 endif
 
+if HAVE_PICOTLS
+SUBDIRS += picotls
+endif
+
 EXTRA_DIST = CMakeLists.txt
