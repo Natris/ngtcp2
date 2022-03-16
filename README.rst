@@ -1,7 +1,14 @@
+Avast
+======
+This branch contains changes that makes the library usable
+to implement proxy, where migration to other IP needs to be
+split into two distinct phases - validation of path, and
+the actual migration. 
+
+The maintainer of the library refused to merge this :(
 
 ngtcp2
 ======
-
 
 "Call it TCP/2.  One More Time."
 
