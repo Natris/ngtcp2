@@ -83,6 +83,10 @@ void ngtcp2_pv_entry_init(ngtcp2_pv_entry *pvent, const uint8_t *data,
 /* NGTCP2_PV_FLAG_PREFERRED_ADDR indicates that client is migrating to
    server's preferred address.  This flag is only used by client. */
 #define NGTCP2_PV_FLAG_PREFERRED_ADDR 0x10
+/* NGTCP2_PV_FLAG_PATH_VALIDATION_ONLY` indicates that if path validation
+ * succeeds, rather than migrating to it we want to store the
+ * DCID in conn->dcid.bound. This flag is only used by client. */
+#define NGTCP2_PV_FLAG_PATH_VALIDATION_ONLY 0x20
 
 typedef struct ngtcp2_pv ngtcp2_pv;
 

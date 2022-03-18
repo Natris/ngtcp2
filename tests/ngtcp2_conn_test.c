@@ -173,6 +173,11 @@ typedef struct {
   } datagram;
   struct {
     uint32_t flags;
+    ngtcp2_path_storage ps;
+    ngtcp2_path_validation_result res;
+  } path_validation;
+  struct {
+    uint32_t flags;
     int64_t stream_id;
     uint64_t app_error_code;
   } stream_close;
@@ -457,6 +462,24 @@ static int recv_datagram(ngtcp2_conn *conn, uint32_t flags, const uint8_t *data,
     ud->datagram.flags = flags;
     ud->datagram.data = data;
     ud->datagram.datalen = datalen;
+  }
+
+  return 0;
+}
+
+static int path_validation(ngtcp2_conn *conn,
+                           uint32_t flags,
+                           const ngtcp2_path *path,
+                           ngtcp2_path_validation_result res,
+                           void *user_data)
+{
+  my_user_data *ud = user_data;
+  (void)conn;
+
+  if (ud) {
+    ud->path_validation.flags = flags;
+    ngtcp2_path_storage_init2(&ud->path_validation.ps, path);
+    ud->path_validation.res = res;
   }
 
   return 0;
@@ -5442,6 +5465,144 @@ void test_ngtcp2_conn_client_connection_migration(void) {
   CU_ASSERT(ngtcp2_path_eq(&to_path.path, &conn->dcid.current.ps.path));
   CU_ASSERT(&ud == conn->dcid.current.ps.path.user_data);
   CU_ASSERT(ngtcp2_cid_eq(&cid, &conn->dcid.current.cid));
+
+  ngtcp2_conn_del(conn);
+
+  /* migrate in two phases, first validate the path, then transfer to the path */
+  setup_default_client(&conn);
+  conn->user_data = &ud;
+  conn->callbacks.path_validation = path_validation;
+
+  fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
+  fr.new_connection_id.seq = 1;
+  fr.new_connection_id.retire_prior_to = 0;
+  fr.new_connection_id.cid = cid;
+  memcpy(fr.new_connection_id.stateless_reset_token, token, sizeof(token));
+
+  pktlen = write_single_frame_pkt(buf, sizeof(buf), &conn->oscid,
+                                  ++pkt_num, &fr, conn->pktns.crypto.rx.ckm);
+
+  rv = ngtcp2_conn_read_pkt(conn, &null_path.path, &null_pi, buf, pktlen, ++t);
+
+  CU_ASSERT(0 == rv);
+
+  ngtcp2_path_storage_init(&to_path,
+                           new_path.path.local.addr,
+                           new_path.path.local.addrlen,
+                           ngtcp2_conn_get_path(conn)->remote.addr,
+                           ngtcp2_conn_get_path(conn)->remote.addrlen,
+                           &ud);
+  rv = ngtcp2_conn_initiate_migration2(
+      conn, &to_path.path,
+      NGTCP2_MIGRATION_FLAG_PREFERRED_ADDR |
+          NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY,
+      ++t);
+
+  CU_ASSERT(0 == rv);
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
+  CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
+
+  spktlen = ngtcp2_conn_write_pkt(conn, NULL, NULL, buf, sizeof(buf), ++t);
+
+  CU_ASSERT(0 < spktlen);
+
+  fr.type = NGTCP2_FRAME_PATH_RESPONSE;
+  memset(fr.path_response.data, 0, sizeof(fr.path_response.data));
+
+  pktlen = write_single_frame_pkt(buf, sizeof(buf), &conn->oscid,
+                                  ++pkt_num, &fr, conn->pktns.crypto.rx.ckm);
+
+  rv = ngtcp2_conn_read_pkt(conn, &null_path.path, &null_pi, buf, pktlen, ++t);
+
+  CU_ASSERT(0 == rv);
+  CU_ASSERT(NULL == conn->pv);
+  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->dcid.bound.rb));
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
+  CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
+  CU_ASSERT(NGTCP2_PATH_VALIDATION_FLAG_PREFERRED_ADDR == ud.path_validation.flags);
+  CU_ASSERT(NGTCP2_PATH_VALIDATION_RESULT_SUCCESS == ud.path_validation.res);
+  CU_ASSERT(ngtcp2_path_eq(&to_path.path, &ud.path_validation.ps.path));
+
+  rv = ngtcp2_conn_initiate_immediate_migration2(
+      conn, &to_path.path, NGTCP2_MIGRATION_FLAG_NONE, ++t);
+
+  CU_ASSERT(0 == rv);
+  CU_ASSERT(NULL == conn->pv);
+  CU_ASSERT(
+      ngtcp2_addr_eq(&new_path.path.local, &conn->dcid.current.ps.path.local));
+  CU_ASSERT(ngtcp2_addr_eq(&null_path.path.remote,
+                           &conn->dcid.current.ps.path.remote));
+  CU_ASSERT(&ud == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&cid, &conn->dcid.current.cid));
+  CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.bound.rb));
+
+  ngtcp2_conn_del(conn);
+
+  /* migration: only validate the path, then abort the migration */
+  setup_default_client(&conn);
+  conn->user_data = &ud;
+  conn->callbacks.path_validation = path_validation;
+
+  fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
+  fr.new_connection_id.seq = 1;
+  fr.new_connection_id.retire_prior_to = 0;
+  fr.new_connection_id.cid = cid;
+  memcpy(fr.new_connection_id.stateless_reset_token, token, sizeof(token));
+
+  pktlen = write_single_frame_pkt(buf, sizeof(buf), &conn->oscid,
+                                  ++pkt_num, &fr, conn->pktns.crypto.rx.ckm);
+
+  rv = ngtcp2_conn_read_pkt(conn, &null_path.path, &null_pi, buf, pktlen, ++t);
+
+  CU_ASSERT(0 == rv);
+
+  ngtcp2_path_storage_init(&to_path,
+                           new_path.path.local.addr,
+                           new_path.path.local.addrlen,
+                           ngtcp2_conn_get_path(conn)->remote.addr,
+                           ngtcp2_conn_get_path(conn)->remote.addrlen,
+                           &ud);
+  rv = ngtcp2_conn_initiate_migration2(
+      conn, &to_path.path, NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY, ++t);
+
+  CU_ASSERT(0 == rv);
+  CU_ASSERT(NULL != conn->pv);
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
+  CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
+
+  spktlen = ngtcp2_conn_write_pkt(conn, NULL, NULL, buf, sizeof(buf), ++t);
+
+  CU_ASSERT(0 < spktlen);
+
+  fr.type = NGTCP2_FRAME_PATH_RESPONSE;
+  memset(fr.path_response.data, 0, sizeof(fr.path_response.data));
+
+  pktlen = write_single_frame_pkt(buf, sizeof(buf), &conn->oscid,
+                                  ++pkt_num, &fr, conn->pktns.crypto.rx.ckm);
+
+  rv = ngtcp2_conn_read_pkt(conn, &null_path.path, &null_pi, buf, pktlen, ++t);
+
+  CU_ASSERT(0 == rv);
+  CU_ASSERT(NULL == conn->pv);
+  CU_ASSERT(1 == ngtcp2_ringbuf_len(&conn->dcid.bound.rb));
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
+  CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
+  CU_ASSERT(NGTCP2_PATH_VALIDATION_FLAG_NONE == ud.path_validation.flags);
+  CU_ASSERT(NGTCP2_PATH_VALIDATION_RESULT_SUCCESS == ud.path_validation.res);
+  CU_ASSERT(ngtcp2_path_eq(&to_path.path, &ud.path_validation.ps.path));
+
+  rv = ngtcp2_conn_abort_migration(conn, &to_path.path, NGTCP2_MIGRATION_FLAG_NONE,
+                                   ++t);
+
+  CU_ASSERT(0 == ngtcp2_ringbuf_len(&conn->dcid.bound.rb));
+  CU_ASSERT(ngtcp2_path_eq(&null_path.path, &conn->dcid.current.ps.path));
+  CU_ASSERT(NULL == conn->dcid.current.ps.path.user_data);
+  CU_ASSERT(ngtcp2_cid_eq(&conn->rcid, &conn->dcid.current.cid));
 
   ngtcp2_conn_del(conn);
 }

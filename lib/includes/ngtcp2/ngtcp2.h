@@ -4636,6 +4636,153 @@ NGTCP2_EXTERN int ngtcp2_conn_initiate_migration(ngtcp2_conn *conn,
                                                  ngtcp2_tstamp ts);
 
 /**
+ * @macrosection
+ *
+ * Migration related macros.
+ */
+
+/**
+ * @macro
+ *
+ * :macro:`NGTCP2_MIGRATION_FLAG_NONE` indicates no flag set.
+ */
+#define NGTCP2_MIGRATION_FLAG_NONE 0
+
+/**
+ * @macro
+ *
+ * :macro:`NGTCP2_MIGRATION_FLAG_PREFERRED_ADDR` indicates
+ * that this migration is the initial migration to server's preferred
+ * address and must not be aborted.
+ * :macro:`NGTCP2_PATH_VALIDATION_FLAG_PREFERRED_ADDR` will be provided
+ * to :type:`ngtcp2_path_validation` callback when validation finishes.
+ */
+#define NGTCP2_MIGRATION_FLAG_PREFERRED_ADDR 0x01
+
+/**
+ * @macro
+ *
+ * :macro:`NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY` indicates
+ * that in case the path validation succeeds, migration should
+ * not occur.
+ */
+#define NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY 0x02
+
+
+/**
+ * @function
+ *
+ * `ngtcp2_conn_initiate_migration2` is a more flexible alternative to
+ * the preferred :type:`ngtcp2_select_preferred_addr` callback for the
+ * purpose of initial migration to server's preferred address and to
+ * `ngtcp2_conn_initiate_migration` for switching to a different local
+ * address. Only client can initiate migration.
+ *
+ * Important differences are:
+ * 1) it is possible to only initiate |path| validation without automatically
+ *    migrating in case of successful path validation by specifying
+ *    :macro:`NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY` in |flags|. In
+ *    that case, :type:`ngtcp2_path_validation` reports verification as normal,
+ *    but tthe caller should either perform migration by using
+ *    `ngtcp2_conn_initiate_immediate_migration2` or release any resources
+ *    still possibly associated with |path| via `ngtcp2_conn_abort_migration`.
+ *    Please note that it is completely fine (although slightly wasteful) to
+ *    abort a validated path and after that perform the immediate migration;
+ *    what is important is to migrate to a path that we know is accessible.
+ *    Excessive failed or aborted path validations not followed by migration
+ *    can possibly lead to temporary connection ID depletion and thus
+ *    inability to initiate new migrations.
+ * 2) It is possible to initiate migration to server's preferred path
+ *    later than within :type:`ngtcp2_select_preferred_addr` callback,
+ *    although this must be the first migration attempted. Specify
+ *    macro:`NGTCP2_MIGRATION_FLAG_PREFERRED_ADDR` in |flags| in that case.
+ *
+ * This function initiates path validation of |path|. Result of the path
+ * validation will eventually be reported via :type:`ngtcp2_path_validation`
+ * callback. Possible migration to a successfully verified path occurs
+ * automatically afterwards. Specify |flags| as zero or more of
+ * NGTCP2_MIGRATION_FLAG_*. See :macro:`NGTCP2_MIGRATION_FLAG_NONE`.
+ *
+ * Must not be invoked from within :type:`ngtcp2_path_validation` callback!
+ *
+ * If a migration is already pending, it will be aborted.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :macro:`NGTCP2_ERR_INVALID_STATE`
+ *     Migration is disabled; or handshake is not yet confirmed; or
+ *     client is migrating to server's preferred address.
+ * :macro:`NGTCP2_ERR_CONN_ID_BLOCKED`
+ *     No unused connection ID is available.
+ * :macro:`NGTCP2_ERR_INVALID_ARGUMENT`
+ *     |local_addr| equals the current local address.
+ * :macro:`NGTCP2_ERR_NOMEM`
+ *     Out of memory
+ */
+NGTCP2_EXTERN int ngtcp2_conn_initiate_migration2(ngtcp2_conn *conn,
+                                                    const ngtcp2_path *path,
+                                                    uint32_t flags,
+                                                    ngtcp2_tstamp ts);
+
+
+/**
+ * @function
+ *
+ * `ngtcp2_conn_abort_migration` ensures that pending migration is aborted
+ * and that any resources associated with the path are released.
+ * Set |flags| to NGTCP2_MIGRATION_FLAG_NONE for now.
+ *
+ * Must not be invoked from within :type:`ngtcp2_path_validation` callback!
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :macro:`NGTCP2_ERR_NOMEM`
+ *     Out of memory
+ */
+NGTCP2_EXTERN int ngtcp2_conn_abort_migration(ngtcp2_conn *conn,
+                                              const ngtcp2_path *path,
+                                              uint32_t flags,
+                                              ngtcp2_tstamp ts);
+
+/**
+ * @function
+ *
+ * `ngtcp2_conn_initiate_immediate_migration2` starts connection
+ * migration to the given |path|. Only client can initiate migration.
+ * This function does an immediate migration; it does not probe peer
+ * reachability from a new local address; however if the path has
+ * previously been probed via `ngtcp2_conn_initiate_migration2`
+ * with :macro:`NGTCP2_MIGRATION_FLAG_PATH_VALIDATION_ONLY`, it will
+ * attempt to reuse any resources (connection ID etc.) that may still
+ * be left there since that time.
+ * Set |flags| to NGTCP2_MIGRATION_FLAG_NONE for now.
+ *
+ * Must not be invoked from within :type:`ngtcp2_path_validation` callback!
+ *
+ * If migration to this path is already pending, it will be aborted.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :macro:`NGTCP2_ERR_INVALID_STATE`
+ *     Migration is disabled; or handshake is not yet confirmed; or
+ *     client is migrating to server's preferred address.
+ * :macro:`NGTCP2_ERR_CONN_ID_BLOCKED`
+ *     No unused connection ID is available.
+ * :macro:`NGTCP2_ERR_INVALID_ARGUMENT`
+ *     |local_addr| equals the current local address.
+ * :macro:`NGTCP2_ERR_NOMEM`
+ *     Out of memory
+ */
+NGTCP2_EXTERN int
+ngtcp2_conn_initiate_immediate_migration2(ngtcp2_conn *conn,
+                                          const ngtcp2_path *path,
+                                          uint32_t flags,
+                                          ngtcp2_tstamp ts);
+
+/**
  * @function
  *
  * `ngtcp2_conn_get_max_local_streams_uni` returns the cumulative
