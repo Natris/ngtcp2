@@ -420,6 +420,13 @@ struct ngtcp2_conn {
     /* num_retired is the number of retired Connection ID still
        included in set. */
     size_t num_retired;
+    /* Number of migration initiated by client that have either failed
+     * or were aborted since the last time a complete reissue of
+     * connection IDs took place. Please note that undecided migrations
+     * for which we still have state are stored in conn->dcid.bound. */
+    size_t client_denied_migrations;
+    /* Current Retire Prior To value */
+    uint64_t last_retire_prior_to;
   } scid;
 
   struct {

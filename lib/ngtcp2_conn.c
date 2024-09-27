@@ -2985,22 +2985,27 @@ static int conn_should_send_max_data(ngtcp2_conn *conn) {
  * remote endpoint.
  */
 static size_t conn_required_num_new_connection_id(ngtcp2_conn *conn) {
-  uint64_t n;
   size_t len = ngtcp2_ksl_len(&conn->scid.set);
+  size_t active = len - conn->scid.num_retired;
 
+  if (!conn->server) {
+    size_t needed = ngtcp2_ringbuf_len(&conn->dcid.bound) + /*still undecided*/
+                    conn->scid.client_denied_migrations +
+                    (conn->pv ? 2 : 1);
+    if (active < needed) {
+      return needed - active;
+    }
+  }
+
+  /* We don't provide extra CID if doing so exceeds NGTCP2_MAX_SCID_POOL_SIZE
+   * unless we are forced by aborted migrations. */
   if (len >= NGTCP2_MAX_SCID_POOL_SIZE) {
     return 0;
   }
-
-  assert(conn->remote.transport_params.active_connection_id_limit);
-
-  /* len includes retired CID.  We don't provide extra CID if doing so
-     exceeds NGTCP2_MAX_SCID_POOL_SIZE. */
-
-  n = conn->remote.transport_params.active_connection_id_limit +
-      conn->scid.num_retired;
-
-  return (size_t)ngtcp2_min(NGTCP2_MAX_SCID_POOL_SIZE, n) - len;
+  if (active < conn->remote.transport_params.active_connection_id_limit) {
+    return conn->remote.transport_params.active_connection_id_limit - active;
+  }
+  return 0;
 }
 
 /*
@@ -3026,6 +3031,27 @@ static int conn_enqueue_new_connection_id(ngtcp2_conn *conn) {
   ngtcp2_pktns *pktns = &conn->pktns;
   ngtcp2_scid *scid;
   ngtcp2_ksl_it it;
+
+  /* Path validations which do not lead to migration to the path may
+   * at least temporarily lead to server still having the connection ID
+   * bound to these paths. According to RFC9000, 5.1.1:
+   *   "An endpoint that initiates migration and requires non-zero-length
+   *   connection IDs SHOULD ensure that the pool of connection IDs
+   *   available to its peer allows the peer to use a new connection ID on
+   *   migration, as the peer will be unable to respond if the pool is
+   *   exhausted.".
+   * By being conservative and assuming that all these paths are still in
+   * use in the following calculation, retire_prior_to is used to ensure
+   * that the server will not reach connection ID exhaustion. This is the
+   * simplest way how to solve this corner case.*/
+  if (!conn->server &&
+      conn->scid.client_denied_migrations + (conn->pv ? 2 : 1) >
+      ngtcp2_min(conn->remote.transport_params.active_connection_id_limit,
+                 NGTCP2_MAX_SCID_POOL_SIZE)) {
+    conn->scid.client_denied_migrations = 0;
+    need = ngtcp2_max(conn->pv ? 2 : 1, need);
+    conn->scid.last_retire_prior_to = conn->scid.last_seq + 1;
+  }
 
   for (i = 0; i < need; ++i) {
     rv = conn_call_get_new_connection_id(conn, &cid, token, cidlen);
@@ -3066,7 +3092,7 @@ static int conn_enqueue_new_connection_id(ngtcp2_conn *conn) {
 
     nfrc->fr.type = NGTCP2_FRAME_NEW_CONNECTION_ID;
     nfrc->fr.new_connection_id.seq = seq;
-    nfrc->fr.new_connection_id.retire_prior_to = 0;
+    nfrc->fr.new_connection_id.retire_prior_to = conn->scid.last_retire_prior_to;
     nfrc->fr.new_connection_id.cid = cid;
     memcpy(nfrc->fr.new_connection_id.stateless_reset_token, token,
            sizeof(token));
@@ -4443,6 +4469,8 @@ static int conn_abort_pv(ngtcp2_conn *conn, ngtcp2_tstamp ts) {
     }
   }
 
+  ++conn->scid.client_denied_migrations;
+
   return conn_stop_pv(conn, ts);
 }
 
@@ -4503,6 +4531,8 @@ static int conn_on_path_validation_failed(ngtcp2_conn *conn, ngtcp2_pv *pv,
     ngtcp2_dcid_copy(&conn->dcid.current, &pv->fallback_dcid);
     conn_reset_congestion_state(conn, ts);
   }
+
+  ++conn->scid.client_denied_migrations;
 
   return conn_stop_pv(conn, ts);
 }
@@ -12147,11 +12177,22 @@ const ngtcp2_path *ngtcp2_conn_get_path(ngtcp2_conn *conn) {
 
 static int conn_initiate_migration_precheck(ngtcp2_conn *conn,
                                             const ngtcp2_addr *local_addr) {
+  ngtcp2_ksl_it it;
+
   if (conn->remote.transport_params.disable_active_migration ||
       conn->dcid.current.cid.datalen == 0 ||
       !(conn->flags & NGTCP2_CONN_FLAG_HANDSHAKE_CONFIRMED) ||
       (conn->pv && (conn->pv->flags & NGTCP2_PV_FLAG_PREFERRED_ADDR))) {
     return NGTCP2_ERR_INVALID_STATE;
+  }
+  if (!conn->server &&
+      conn->scid.client_denied_migrations + (conn->pv ? 2 : 1) >=
+      ngtcp2_min(conn->remote.transport_params.active_connection_id_limit,
+                 NGTCP2_MAX_SCID_POOL_SIZE) &&
+      ngtcp2_ksl_it_begin(&it) &&
+      *(uint64_t *)ngtcp2_ksl_it_key(&it) < conn->scid.last_retire_prior_to) {
+    /*can not send another NEW_CONNECTION_ID with Retire Prior To right now*/
+    return NGTCP2_ERR_CONN_ID_BLOCKED;
   }
 
   if (ngtcp2_ringbuf_len(&conn->dcid.unused.rb) == 0) {
